@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Send Note · GraceFrame</title>
+<link rel="apple-touch-icon" href="Spotify_Frame/data/www/icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#2b2620">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
+<style>
+:root{--paper:#f6f1e7;--paper2:#fffdf8;--ink:#2b2620;--soft:#6b6156;
+  --line:#d9cdb6;--gold:#a8874f;--ok:#2f6b42;--err:#7c2d2d}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;min-height:100vh;background:var(--paper);color:var(--ink);
+  font-family:"Cormorant Garamond",Georgia,serif;font-size:18px;
+  display:flex;flex-direction:column;align-items:center;
+  padding:calc(24px + env(safe-area-inset-top)) 16px
+          calc(24px + env(safe-area-inset-bottom))}
+.wrap{width:100%;max-width:520px}
+.brand{font-family:"Dancing Script",cursive;font-size:34px;text-align:center;
+  margin:6px 0 2px}
+.sub{text-align:center;color:var(--soft);margin:0 0 20px}
+.card{background:var(--paper2);border:1px solid var(--line);border-radius:16px;
+  padding:18px;box-shadow:0 1px 3px rgba(60,50,30,.06)}
+label{display:block;margin:12px 0 6px;color:var(--soft);font-size:15px;
+  letter-spacing:.06em}
+label:first-child{margin-top:0}
+input,textarea,select{width:100%;padding:12px;font:inherit;font-size:17px;
+  border:1px solid var(--line);border-radius:10px;background:var(--paper);
+  color:var(--ink)}
+textarea{min-height:130px;resize:vertical}
+.btn{display:block;width:100%;border:0;border-radius:12px;padding:14px 18px;
+  font:inherit;font-size:18px;background:var(--ink);color:var(--paper);
+  cursor:pointer;margin-top:16px}
+.btn:disabled{opacity:.5;cursor:default}
+.status{text-align:center;margin-top:14px;min-height:22px;font-size:16px}
+.status.ok{color:var(--ok)}.status.err{color:var(--err)}
+.hint{color:var(--soft);font-size:14px;text-align:center;margin-top:18px;
+  line-height:1.5}
+.count{float:right;color:var(--soft);font-size:13px;letter-spacing:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">GraceFrame</div>
+  <p class="sub">Send a note to the frame — from anywhere.</p>
+  <div class="card">
+    <label>Your message <span class="count" id="count">0/280</span></label>
+    <textarea id="text" maxlength="280"
+      placeholder="Type a message to send to the frame…"></textarea>
+    <label>From</label>
+    <input id="from" maxlength="40" placeholder="your name">
+    <label>Keep it on screen for</label>
+    <select id="minutes">
+      <option value="15">15 minutes</option>
+      <option value="30" selected>30 minutes</option>
+      <option value="60">1 hour</option>
+      <option value="120">2 hours</option>
+      <option value="360">until this evening</option>
+      <option value="0">until dismissed</option>
+    </select>
+    <button class="btn" id="send">Send to frame</button>
+    <div class="status" id="status"></div>
+  </div>
+  <p class="hint">Tip: on your phone, use <b>Share → Add to Home Screen</b> so
+    this is one tap away. It reaches the frame over the internet — you don't need
+    to be on her Wi-Fi. This link carries a private access token, so keep it to
+    yourself.</p>
+</div>
+<script>
+// This page talks directly to a private ntfy.sh channel that only the frame
+// listens on. The channel name is a secret access token passed in the URL
+// (?token=frame-note-xxxx-xxxx-xxxx-xxxx); it is NOT stored in this file, so the
+// page is inert if it's ever shared without the token. The token must match
+// NOTES_TOPIC in Spotify_Frame/secrets.h. Bookmark your tokenized link, keep it
+// to yourself.
+const $ = (id) => document.getElementById(id);
+const TOKEN = (new URLSearchParams(location.search).get("token") || "").trim();
+const TOKEN_OK = /^frame-note-[0-9a-f]{4}(-[0-9a-f]{4}){3}$/i.test(TOKEN);
+const ENDPOINT = "https://ntfy.sh/" + TOKEN;
+$("from").value = localStorage.getItem("gf_from") || "";
+$("count").textContent = "0/280";
+$("text").addEventListener("input", () => {
+  $("count").textContent = $("text").value.length + "/280";
+});
+
+function setStatus(msg, cls){ const s = $("status"); s.textContent = msg;
+  s.className = "status" + (cls ? " " + cls : ""); }
+
+// Reject unauthenticated use: no valid token in the URL -> the page is disabled.
+if (!TOKEN_OK){
+  ["text", "from", "minutes", "send"].forEach((id) => { $(id).disabled = true; });
+  setStatus(TOKEN ? "This link's access token isn't valid."
+                  : "This link is missing its access token — open your private "
+                    + "send-note link.", "err");
+}
+
+$("send").onclick = async () => {
+  if (!TOKEN_OK){ setStatus("This link is missing its access token.", "err"); return; }
+  const text = $("text").value.trim();
+  if (!text){ setStatus("Write a message first.", "err"); return; }
+  const from = $("from").value.trim();
+  localStorage.setItem("gf_from", from);
+  const payload = JSON.stringify({
+    gf: 1, text, from, minutes: parseInt($("minutes").value, 10)
+  });
+  $("send").disabled = true;
+  setStatus("Sending…");
+  try{
+    // text/plain keeps this a "simple" CORS request, so it works from any
+    // origin (even a file opened straight from your phone).
+    const r = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain" },
+      body: payload
+    });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    setStatus("Sent ✓  It will appear on the frame within a few seconds.", "ok");
+    $("text").value = "";
+    $("count").textContent = "0/280";
+  }catch(e){
+    setStatus("Couldn't send (" + e.message + "). Check your connection and try again.", "err");
+  }finally{
+    $("send").disabled = false;
+  }
+};
+</script>
+</body>
+</html>

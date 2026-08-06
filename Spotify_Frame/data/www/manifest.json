@@ -1,0 +1,13 @@
+{
+  "name": "GraceFrame",
+  "short_name": "GraceFrame",
+  "description": "Your frame — verses, music, and messages.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f6f1e7",
+  "theme_color": "#2b2620",
+  "icons": [
+    { "src": "/icon.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
