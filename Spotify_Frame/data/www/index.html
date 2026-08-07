@@ -540,7 +540,7 @@ function fillSettings(){
     <div class="kv"><span>Bible</span><b>${d.verses} verses · ${d.translation}</b></div>
     <div class="kv"><span>Favorites</span><b>${d.favs}</b></div>
     <div class="kv"><span>Scenes</span><b>${d.bgs}</b></div>
-    <div class="kv"><span>Spotify</span><b>${d.spotify_ok ? "linked ✓" : "not linked"}</b></div>
+    <div class="kv"><span>Spotify</span><b>${({ok:"linked ✓",failed:"credentials rejected ✕",none:"not linked",unknown:"linking…"})[d.spotify_link] || (d.spotify_ok ? "linked ✓" : "not linked")}</b></div>
     <div class="kv"><span>Wi-Fi signal</span><b>${d.rssi} dBm</b></div>
     <div class="kv"><span>Screen refreshes</span><b>${d.refreshes}</b></div>
     <div class="kv"><span>Awake for</span><b>${Math.floor(d.uptime_s/3600)}h ${Math.floor(d.uptime_s%3600/60)}m</b></div>`;
@@ -562,11 +562,26 @@ $("#btnForce").onclick = async () => {
   refreshSoon();
 };
 $("#btnSp").onclick = async () => {
-  await post("/api/spotify", {id: $("#spId").value.trim(),
-    secret: $("#spSecret").value.trim(), refresh: $("#spRefresh").value.trim()});
-  $("#spId").value = $("#spSecret").value = $("#spRefresh").value = "";
-  toast("Spotify updated — reconnecting…");
-  setTimeout(async () => { await refreshStatus(); fillSettings(); }, 3000);
+  $("#btnSp").disabled = true;
+  toast("Checking with Spotify…");
+  try {
+    // The frame verifies the credentials with Spotify before replying, so this
+    // response already reflects whether they work.
+    await post("/api/spotify", {id: $("#spId").value.trim(),
+      secret: $("#spSecret").value.trim(), refresh: $("#spRefresh").value.trim()});
+    $("#spId").value = $("#spSecret").value = $("#spRefresh").value = "";
+    await refreshStatus(); fillSettings();
+    const lk = status?.device?.spotify_link;
+    toast(lk === "ok" ? "Spotify linked ✓"
+        : lk === "failed" ? "Spotify rejected those credentials — re-check them"
+        : "Saved — checking the connection…");
+  } catch (e) {
+    toast("Couldn't reach the frame");
+  } finally {
+    $("#btnSp").disabled = false;
+    // a couple of follow-ups in case it was still verifying
+    [2500, 6000].forEach(t => setTimeout(() => { refreshStatus().then(fillSettings); }, t));
+  }
 };
 
 // ---------- navigation ----------

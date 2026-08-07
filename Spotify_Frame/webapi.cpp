@@ -98,6 +98,12 @@ static void hStatus() {
   jd["bgs"] = bgsCount();
   jd["translation"] = versesTranslation();
   jd["spotify_ok"] = spotifyConfigured();
+  switch (spotifyLinkState()) {
+    case SP_LINK_OK:     jd["spotify_link"] = "ok"; break;
+    case SP_LINK_FAILED: jd["spotify_link"] = "failed"; break;
+    case SP_LINK_NONE:   jd["spotify_link"] = "none"; break;
+    default:             jd["spotify_link"] = "unknown"; break;
+  }
   time_t now = time(nullptr);
   struct tm tmv;
   localtime_r(&now, &tmv);

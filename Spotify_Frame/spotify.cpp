@@ -13,6 +13,9 @@ static String clientId, clientSecret, refreshToken;
 static String accessToken;
 static uint32_t tokenExpiresAt = 0;
 static uint32_t cooldownUntil = 0;
+static int linkState = SP_LINK_UNKNOWN;
+
+static bool refreshAccessToken();   // fwd decl (spotifySetCreds verifies now)
 
 static uint8_t* gray = nullptr;      // ART_PX^2 grayscale work buffer
 static uint8_t* artBits = nullptr;   // packed 1bpp result
@@ -37,7 +40,7 @@ static String b64(const String& in) {
 void spotifyBegin() {
   gray = (uint8_t*)bigAlloc(ART_PX * ART_PX);
   artBits = (uint8_t*)bigAlloc(ART_PX * ART_PX / 8);
-  memset(artBits, 0, ART_PX * ART_PX / 8);
+  if (artBits) memset(artBits, 0, ART_PX * ART_PX / 8);
   Preferences p;
   p.begin("gf", true);
   clientId = p.getString("sp_id", SP_CLIENT_ID);
@@ -50,6 +53,11 @@ bool spotifyConfigured() {
   return clientId.length() > 10 && refreshToken.length() > 10;
 }
 
+int spotifyLinkState() {
+  if (!spotifyConfigured()) return SP_LINK_NONE;
+  return linkState;
+}
+
 void spotifySetCreds(const String& id, const String& secret,
                      const String& refresh) {
   Preferences p;
@@ -60,6 +68,10 @@ void spotifySetCreds(const String& id, const String& secret,
   p.end();
   accessToken = "";
   tokenExpiresAt = 0;
+  linkState = SP_LINK_UNKNOWN;
+  // Verify right away so the app can say "linked ✓" or "credentials rejected"
+  // within a moment of her pressing Save — no waiting for the next poll.
+  if (spotifyConfigured()) refreshAccessToken();
 }
 
 uint32_t spotifyCooldownMs() {
@@ -81,14 +93,21 @@ static bool refreshAccessToken() {
   if (code != 200) {
     Serial.printf("spotify token HTTP %d\n", code);
     http.end();
+    // 400/401 mean Spotify actively rejected the id/secret/refresh token —
+    // that's a "wrong credentials" state the app should surface. Other codes
+    // (5xx, -1 connection) are transient; leave the state unknown, don't accuse.
+    if (code == 400 || code == 401) linkState = SP_LINK_FAILED;
     return false;
   }
   JsonDocument doc;
-  deserializeJson(doc, http.getString());
+  DeserializationError e = deserializeJson(doc, http.getString());
   http.end();
+  if (e) return false;               // transient parse hiccup — don't mark failed
   accessToken = doc["access_token"].as<String>();
   tokenExpiresAt = millis() + (uint32_t)(doc["expires_in"] | 3600) * 1000UL - 60000UL;
-  return accessToken.length() > 0;
+  if (accessToken.length() > 0) { linkState = SP_LINK_OK; return true; }
+  linkState = SP_LINK_FAILED;        // 200 but no token — treat as bad creds
+  return false;
 }
 
 static void ensureToken() {
@@ -98,7 +117,7 @@ static void ensureToken() {
 
 int spotifyPoll(Track& t) {
   if (!spotifyConfigured()) return SP_ERROR;
-  if (millis() < cooldownUntil) return SP_COOLDOWN;
+  if (spotifyCooldownMs() > 0) return SP_COOLDOWN;   // rollover-safe cooldown
   ensureToken();
   if (!accessToken.length()) return SP_ERROR;
 

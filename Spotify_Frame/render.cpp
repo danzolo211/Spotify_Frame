@@ -286,7 +286,18 @@ void renderNote(const String& text, const String& from) {
     int n = wrapText(body, f, zw, lines, min(maxLines, MAX_LINES));
     if (n > 0) { font = f; nLines = n; lineH = f->yAdvance; break; }
   }
-  if (nLines == 0) { lines[0] = fitEllipsis(&SerifIt, body, zw); nLines = 1; }
+  if (nLines == 0) {   // longer than the whole chain: fill the zone with the
+    font = &SerifIt;   // smallest font and ellipsize, rather than collapsing a
+    lineH = SerifIt.yAdvance;                       // whole note to one "..." line
+    int maxLines = max(1, (zh - 26 - fromBlock) / lineH);
+    if (maxLines > MAX_LINES) maxLines = MAX_LINES;
+    String t = body;
+    while (nLines <= 0 && t.length() > 8) {
+      t.remove(t.length() - 8);
+      nLines = wrapText(t + "...", font, zw, lines, maxLines);
+    }
+    if (nLines <= 0) { lines[0] = fitEllipsis(&SerifIt, body, zw); nLines = 1; }
+  }
 
   int block = nLines * lineH + fromBlock;
   int top = zy + 26 + (zh - 26 - block) / 2;

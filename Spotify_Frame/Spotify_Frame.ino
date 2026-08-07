@@ -22,6 +22,8 @@
 #include <WiFi.h>
 #include <LittleFS.h>
 #include <time.h>
+#include "esp_task_wdt.h"
+#include "esp_heap_caps.h"
 
 #include "config.h"
 #include "state.h"
@@ -389,6 +391,34 @@ static void processPending() {
   }
 }
 
+// Guards the one failure a multi-day, unattended run can still hit: heap
+// fragmentation. Every secure connection (Spotify, notes) briefly grabs a big
+// contiguous block of *internal* RAM; over many days the largest free block can
+// shrink until a new TLS session can't be made and music/notes quietly stop
+// (verses keep going — they need no network). If we ever get that low, a clean
+// reboot fully de-fragments the heap and everything resumes; favorites,
+// settings, Wi-Fi and Spotify credentials all live in flash and survive it.
+// It only fires in genuinely bad shape (two low readings a minute apart) so a
+// healthy frame never reboots, and never while she's reading a note.
+static void healthTick() {
+  static uint32_t lastCheck = 0;
+  static uint8_t lowStreak = 0;
+  if (millis() < 180000UL) return;                 // 3-min grace after boot
+  if (millis() - lastCheck < 60000UL) return;
+  lastCheck = millis();
+  size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL);
+  if (largest < 30000 && !app.note.active) {       // a TLS handshake needs ~40KB
+    if (++lowStreak >= 2) {
+      Serial.printf("heap critically low (largest internal=%u) — rebooting\n",
+                    (unsigned)largest);
+      delay(50);
+      ESP.restart();
+    }
+  } else {
+    lowStreak = 0;
+  }
+}
+
 static void wifiTick() {
   if (millis() - lastWifiCheck < 30000) return;
   lastWifiCheck = millis();
@@ -414,7 +444,18 @@ void setup() {
   renderMessage("Good things are loading...", "");
   epdPush(PUSH_FULL);
 
-  if (!LittleFS.begin(true, "/littlefs", 10, "ffat")) Serial.println("LittleFS mount failed!");
+  // Mount the data partition. formatOnFail is deliberately FALSE: a transient
+  // mount failure (e.g. a brownout mid-write) must never trigger a reformat,
+  // which would erase every verse, background and favorite with no way to
+  // restore them in the field. On a real failure we retry once, then run in a
+  // degraded "please re-upload data" state — the data is left intact to recover.
+  bool mounted = LittleFS.begin(false, "/littlefs", 10, "ffat");
+  if (!mounted) {
+    Serial.println("LittleFS mount failed — retrying once");
+    delay(100);
+    mounted = LittleFS.begin(false, "/littlefs", 10, "ffat");
+  }
+  if (!mounted) Serial.println("LittleFS mount failed (data left intact)");
   settings.load();
   bool v = versesBegin();
   bool b = bgsBegin();
@@ -434,9 +475,23 @@ void setup() {
     epdPush(PUSH_FULL);
   }
   app.lastMusicActive = 0;
+
+  // Self-healing watchdog: if the main loop ever wedges (a hung driver, a stuck
+  // library) for longer than this, the chip reboots and comes back on its own —
+  // no one has to unplug it. Every network call is already capped at ~8s, and
+  // the loop feeds the watchdog each pass, so this 2-minute window can only be
+  // hit by a genuine lock-up, never by a slow-but-progressing operation.
+  esp_task_wdt_config_t wdt = {};
+  wdt.timeout_ms = 120000;
+  wdt.idle_core_mask = 0;
+  wdt.trigger_panic = true;
+  if (esp_task_wdt_init(&wdt) == ESP_ERR_INVALID_STATE)
+    esp_task_wdt_reconfigure(&wdt);   // core already started it — just widen it
+  esp_task_wdt_add(NULL);             // watch this (the main) loop task
 }
 
 void loop() {
+  esp_task_wdt_reset();               // "still alive" — feed the watchdog
   webHandle();
   processPending();
   remoteNotesTick();
@@ -447,5 +502,6 @@ void loop() {
   specialTimeout();
   quietTick();
   wifiTick();
+  healthTick();
   delay(2);
 }

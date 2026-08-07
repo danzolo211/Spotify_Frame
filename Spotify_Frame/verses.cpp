@@ -32,11 +32,13 @@ bool versesBegin() {
   idx.read((uint8_t*)&nVerses, 4);
   if (nVerses == 0 || nVerses > 20000) { idx.close(); return false; }
   offsets = (uint32_t*)bigAlloc(nVerses * 4);
+  if (!offsets) { idx.close(); nVerses = 0; return false; }
   idx.read((uint8_t*)offsets, nVerses * 4);
   idx.close();
 
   favBytes = (nVerses + 7) / 8;
   favBits = (uint8_t*)bigAlloc(favBytes);
+  if (!favBits) { nVerses = 0; return false; }   // favs deref would crash
   memset(favBits, 0, favBytes);
   File ff = LittleFS.open("/favs.bin", "r");
   if (ff) { ff.read(favBits, min((uint32_t)ff.size(), favBytes)); ff.close(); }

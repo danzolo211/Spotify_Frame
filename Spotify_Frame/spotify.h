@@ -15,8 +15,16 @@ struct Track {
 #define SP_ERROR    -2      // network/auth hiccup (retry later)
 #define SP_COOLDOWN -3      // rate limited; wait
 
+// Link/auth state, so the app can honestly show whether her credentials work
+// (not just whether something was typed in).
+#define SP_LINK_NONE     0   // no credentials entered
+#define SP_LINK_OK       1   // Spotify accepted them — a token was obtained
+#define SP_LINK_FAILED   2   // Spotify rejected them (wrong id/secret/token)
+#define SP_LINK_UNKNOWN  3   // configured but not verified yet (or network down)
+
 void spotifyBegin();
 bool spotifyConfigured();
+int  spotifyLinkState();     // one of SP_LINK_* above
 int  spotifyPoll(Track& t);
 bool spotifyFetchArt(const String& url);       // fills the art bitmap
 const uint8_t* spotifyArtBits();               // ART_PX*ART_PX/8, bit1=black
