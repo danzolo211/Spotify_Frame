@@ -70,4 +70,38 @@ void epdPush(PushMode mode, int x, int y, int w, int h) {
   refreshes++;
 }
 
+void epdPushRegionClean(int x, int y, int w, int h) {
+  uint32_t since = millis() - lastPushMs;
+  if (lastPushMs != 0 && since < MIN_REFRESH_GAP_MS) {
+    delay(MIN_REFRESH_GAP_MS - since);
+  }
+  // byte-align x/w for the panel's partial RAM window
+  int x0 = x & ~7;
+  int x1 = (x + w + 7) & ~7;
+  int w0 = x1 - x0;
+  if (w0 > SCREEN_W) w0 = SCREEN_W;
+  if (h > 100) h = 100;   // this helper is for small strips only
+
+  static uint8_t white[(SCREEN_W / 8) * 100];   // all-white scratch (bit1 = white)
+  memset(white, 0xFF, sizeof(white));
+
+  const uint8_t* buf = canvas.getBuffer();
+
+  // Phase 1 — blank the region to white. Set BOTH RAM banks to white so the
+  // next transition baselines from a clean white, not the old glyphs.
+  display.epd2.writeImage(white, x0, y, w0, h, false);
+  display.refresh(x0, y, w0, h);
+  display.epd2.writeImageToPrevious(white, x0, y, w0, h, false);
+
+  // Phase 2 — paint the real content, a clean white->content transition.
+  display.writeImage(buf, 0, 0, SCREEN_W, SCREEN_H, true);
+  display.refresh(x0, y, w0, h);
+  display.epd2.writeImageToPrevious(buf, 0, 0, SCREEN_W, SCREEN_H, true);
+
+  display.epd2.powerOff();
+  partials += 2;
+  lastPushMs = millis();
+  refreshes += 2;
+}
+
 uint32_t epdRefreshCount() { return refreshes; }

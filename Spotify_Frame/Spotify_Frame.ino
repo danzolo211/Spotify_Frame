@@ -198,18 +198,23 @@ static void spotifyTick() {
     bool showingThis = (app.mode == MODE_SPOTIFY && t.id == committedTrack);
 
     if (showingThis) {
-      // Same song already on the panel: nudge the play/pause icon or the bar.
-      // Both live in the bottom strip, so keep every in-song update a clean
-      // region refresh of just that strip (y >= 208).
+      // Same song already on the panel. The bottom strip is split so nothing
+      // ghosts: the progress BAR only ever grows (a clean region refresh), while
+      // the elapsed DIGITS and the play/pause ICON change shape, so those go
+      // through the clean (blank-to-white-then-paint) path and can never pile up.
       if (t.playing != prevPlaying) {                 // play <-> pause
         prevPlaying = t.playing;
         drawSpotify();
-        epdPush(PUSH_REGION, 0, 208, SCREEN_W, SCREEN_H - 208);
+        epdPushRegionClean(0, 208, SCREEN_W, SCREEN_H - 208);   // whole strip, crisp
         lastBarPush = millis();
       } else if (t.playing && settings.progressS > 0 &&
                  millis() - lastBarPush >= settings.progressS * 1000UL) {
         drawSpotify();
-        epdPush(PUSH_REGION, 0, 208, SCREEN_W, SCREEN_H - 208);
+        static uint8_t bottomTick = 0;
+        if (bottomTick++ & 1)
+          epdPush(PUSH_REGION, 0, 254, SCREEN_W, 21);           // bar: smooth grow
+        else
+          epdPushRegionClean(0, 276, 136, SCREEN_H - 276);      // elapsed: crisp
         lastBarPush = millis();
       }
     } else if (t.playing && !app.note.active &&
@@ -387,10 +392,15 @@ static void processPending() {
 static void wifiTick() {
   if (millis() - lastWifiCheck < 30000) return;
   lastWifiCheck = millis();
-  if (WiFi.status() != WL_CONNECTED) {
+  static bool wasConnected = true;
+  bool up = (WiFi.status() == WL_CONNECTED);
+  if (!up) {
     Serial.println("wifi: reconnecting...");
     WiFi.reconnect();
+  } else if (!wasConnected) {
+    netReannounce();   // came back after a drop -> graceframe.local works again
   }
+  wasConnected = up;
 }
 
 // ------------------------------------------------------------ setup/loop

@@ -113,3 +113,13 @@ void netTimeMdns() {
     Serial.printf("mdns: http://%s.local\n", MDNS_NAME);
   }
 }
+
+// After the frame drops and rejoins Wi-Fi (e.g. she reboots her router), the
+// mDNS responder needs to be restarted or graceframe.local stops resolving.
+void netReannounce() {
+  MDNS.end();
+  if (MDNS.begin(MDNS_NAME)) {
+    MDNS.addService("http", "tcp", 80);
+    Serial.printf("mdns: re-announced http://%s.local\n", MDNS_NAME);
+  }
+}

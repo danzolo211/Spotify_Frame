@@ -71,6 +71,8 @@ static bool refreshAccessToken() {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
+  http.setConnectTimeout(6000);
+  http.setTimeout(8000);
   http.begin(client, "https://accounts.spotify.com/api/token");
   http.addHeader("Content-Type", "application/x-www-form-urlencoded");
   http.addHeader("Authorization",
@@ -103,6 +105,8 @@ int spotifyPoll(Track& t) {
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
+  http.setConnectTimeout(6000);
+  http.setTimeout(8000);
   const char* retryAfter[] = { "Retry-After" };
   http.collectHeaders(retryAfter, 1);
   http.begin(client, "https://api.spotify.com/v1/me/player/currently-playing");
@@ -196,10 +200,14 @@ static void ditherArt() {          // Floyd-Steinberg -> 1bpp, bit1 = black
 }
 
 static bool downloadJpeg(const String& url, uint8_t** buf, size_t* len) {
+  *buf = nullptr;
+  *len = 0;
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.begin(client, url);
+  http.setConnectTimeout(6000);
+  http.setTimeout(8000);
+  if (!http.begin(client, url)) return false;
   if (http.GET() != 200) { http.end(); return false; }
   int sz = http.getSize();
   if (sz <= 0) sz = 90000;
@@ -216,9 +224,10 @@ static bool downloadJpeg(const String& url, uint8_t** buf, size_t* len) {
     } else delay(2);
   }
   http.end();
+  if (got <= 100) { free(b); return false; }   // free on failure — was a leak
   *buf = b;
   *len = got;
-  return got > 100;
+  return true;
 }
 
 bool spotifyFetchArt(const String& url) {
