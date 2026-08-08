@@ -41,6 +41,15 @@ void epdPush(PushMode mode, int x, int y, int w, int h) {
   // canvas: bit 1 = ink; GxEPD2 buffer: bit 1 = white  -> invert
   const uint8_t* buf = canvas.getBuffer();
   display.writeImage(buf, 0, 0, SCREEN_W, SCREEN_H, true);   // -> "current" RAM
+
+  // byte-align the partial window in x (the panel addresses partial windows on
+  // 8-pixel boundaries); harmless for full/fast, used by PUSH_REGION.
+  int x0 = x & ~7;
+  int x1 = (x + w + 7) & ~7;
+  int w0 = x1 - x0;
+  if (x0 < 0) x0 = 0;
+  if (w0 > SCREEN_W - x0) w0 = SCREEN_W - x0;
+
   switch (mode) {
     case PUSH_FULL:
       display.refresh(false);
@@ -52,16 +61,25 @@ void epdPush(PushMode mode, int x, int y, int w, int h) {
       partials++;
       break;
     case PUSH_REGION:
-      display.refresh(x, y, w, h);
+      display.refresh(x0, y, w0, h);
       partials++;
       break;
   }
-  // Copy what's now on the glass into the panel's "previous" RAM bank. This
-  // panel (SSD1683) computes a partial refresh as the transition previous->
-  // current; without syncing it here, the next partial diffs against stale RAM
-  // and ghosts — that's what jumbled the progress digits and doubled the
-  // play/pause icon.
-  display.epd2.writeImageToPrevious(buf, 0, 0, SCREEN_W, SCREEN_H, true);
+  // Sync the panel's "previous" RAM bank so it MIRRORS the glass — no more, no
+  // less. This panel (SSD1683) computes a partial refresh as the transition
+  // previous->current; the baseline must match what is physically on the glass.
+  // A full/fast refresh changed the whole glass, so copy the whole buffer. But
+  // a PUSH_REGION only changed ONE window; copying the whole buffer here would
+  // tell the panel that areas we never repainted (e.g. the elapsed digits on a
+  // bar-only tick) already match the canvas, so the next partial would diff
+  // against a baseline that isn't on the glass and ghost — exactly what left
+  // the "background" of old digits and jumbled 8 -> 3. Copy just the window we
+  // actually refreshed and the baseline stays honest.
+  if (mode == PUSH_REGION)
+    display.epd2.writeImagePartToPrevious(buf, x0, y, SCREEN_W, SCREEN_H,
+                                          x0, y, w0, h, true);
+  else
+    display.epd2.writeImageToPrevious(buf, 0, 0, SCREEN_W, SCREEN_H, true);
   // powerOff (NOT hibernate): stops the panel driving voltage to prevent
   // fading, but KEEPS the RAM. hibernate() deep-sleeps + resets on next use,
   // which would wipe the baseline we just set and bring the ghosting back.
@@ -96,7 +114,11 @@ void epdPushRegionClean(int x, int y, int w, int h) {
   // Phase 2 — paint the real content, a clean white->content transition.
   display.writeImage(buf, 0, 0, SCREEN_W, SCREEN_H, true);
   display.refresh(x0, y, w0, h);
-  display.epd2.writeImageToPrevious(buf, 0, 0, SCREEN_W, SCREEN_H, true);
+  // Sync ONLY this window into "previous" (mirror the glass). Writing the whole
+  // buffer would poison the baseline for regions we didn't repaint here (e.g.
+  // the progress bar), reintroducing ghosting on the next partial elsewhere.
+  display.epd2.writeImagePartToPrevious(buf, x0, y, SCREEN_W, SCREEN_H,
+                                        x0, y, w0, h, true);
 
   display.epd2.powerOff();
   partials += 2;
