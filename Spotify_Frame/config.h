@@ -10,7 +10,7 @@
 #define ADD_QUOTES      true          // wrap verses in quotation marks
 
 // Special dates: {month, day, title, message} — shown from 7am to noon.
-// Keep messages warm and encouraging. Uncomment / add your own.
+// Keep messages warm and encouraging. Add/remove your own.
 struct SpecialDate {
   uint8_t month, day;
   const char* title;
@@ -19,7 +19,7 @@ struct SpecialDate {
 static const SpecialDate SPECIAL_DATES[] = {
   { 1,  1, "Happy New Year",   "A fresh page, and grace for every line of it." },
   { 7, 10, "The Day We Met",   "I'm so grateful for the day we met!! I was never the same since." },
-  { 8, 15, "Happy Birthday!",  "The world shown a little brighter since the day you were born." },
+  { 8, 15, "Happy Birthday!",  "The world shone a little brighter since the day you were born." },
 };
 
 
