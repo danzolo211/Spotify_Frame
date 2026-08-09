@@ -218,6 +218,12 @@ details{margin-top:10px}summary{cursor:pointer;color:var(--soft)}
   <div class="card">
     <h2>Frame</h2>
     <div id="devInfo"></div>
+    <div style="margin-top:14px">
+      <button class="btn ghost" id="btnWifi">Re-run Wi-Fi setup</button>
+    </div>
+    <p class="muted" style="margin-top:8px">Restarts the frame into first-time
+      setup: it creates a <b>GraceFrame-Setup</b> Wi-Fi network to join and pick a
+      new network. Your verses, scenes, favorites and Spotify link are kept.</p>
   </div>
   <div class="card">
     <h2>Spotify</h2>
@@ -550,16 +556,32 @@ $("#sIdle").oninput = e => $("#lblIdle").textContent = e.target.value + " min";
 $("#sProg").oninput = e => $("#lblProg").textContent =
   +e.target.value ? "every " + e.target.value + "s" : "off (calm)";
 $("#btnSaveSettings").onclick = async () => {
-  await post("/api/settings", {
-    verse_min: +$("#sVerse").value, idle_min: +$("#sIdle").value,
-    progress_s: +$("#sProg").value, quiet_start: +$("#sQs").value,
-    quiet_end: +$("#sQe").value, her_name: $("#sName").value.trim()});
-  toast("Saved");
+  const b = $("#btnSaveSettings"); b.disabled = true;
+  try {
+    await post("/api/settings", {
+      verse_min: +$("#sVerse").value, idle_min: +$("#sIdle").value,
+      progress_s: +$("#sProg").value, quiet_start: +$("#sQs").value,
+      quiet_end: +$("#sQe").value, her_name: $("#sName").value.trim()});
+    toast("Saved ✓");
+  } catch (e) {
+    toast("Couldn't reach the frame — try again");
+  } finally {
+    b.disabled = false;
+  }
 };
 $("#btnForce").onclick = async () => {
   await post("/api/refresh", {});
   toast("Re-inking…");
   refreshSoon();
+};
+$("#btnWifi").onclick = async () => {
+  if (!confirm("Restart the frame into Wi-Fi setup?\n\nYou'll then join the "
+    + "'GraceFrame-Setup' network to choose a Wi-Fi. Your verses, scenes and "
+    + "the Spotify link are kept.")) return;
+  // the frame replies, then reboots into the portal — the connection drops, so
+  // don't depend on the response
+  try { await post("/api/wifi/forget", {}); } catch (e) {}
+  toast("Restarting into setup — join 'GraceFrame-Setup' Wi-Fi in ~15s");
 };
 $("#btnSp").onclick = async () => {
   $("#btnSp").disabled = true;

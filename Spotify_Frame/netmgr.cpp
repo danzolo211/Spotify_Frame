@@ -30,11 +30,25 @@ static bool tryJoin(const String& ssid, const String& pass, uint32_t ms) {
 bool netConnect() {
   Preferences p;
   p.begin("gf", true);
+  bool force = p.getBool("force_setup", false);
   String ssid = p.getString("wifi_ssid", "");
   String pass = p.getString("wifi_pass", "");
   p.end();
+  if (force) return false;                       // "re-run setup" was requested
   if (tryJoin(ssid, pass, 20000)) return true;
   return tryJoin(WIFI_SSID, WIFI_PASS, 20000);
+}
+
+// Clear the saved network and arm the setup portal for the next boot, so the
+// frame comes up in first-time "choose your Wi-Fi" mode. Everything else in
+// flash (Spotify link, verses, scenes, favorites, settings) is left untouched.
+void netForgetWifi() {
+  Preferences p;
+  p.begin("gf", false);
+  p.remove("wifi_ssid");
+  p.remove("wifi_pass");
+  p.putBool("force_setup", true);
+  p.end();
 }
 
 // ------------------------------------------------------------- portal
@@ -115,6 +129,7 @@ void netPortal() {
     p.begin("gf", false);
     p.putString("wifi_ssid", ssid);
     p.putString("wifi_pass", portal.arg("pass"));
+    p.putBool("force_setup", false);      // setup done -> connect normally again
     p.end();
     portal.send(200, "text/html",
                 "<meta name=viewport content='width=device-width,initial-scale=1'>"

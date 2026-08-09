@@ -4,6 +4,7 @@
 #include "bgs.h"
 #include "spotify.h"
 #include "epaper.h"
+#include "netmgr.h"
 #include "config.h"
 #include "util.h"
 
@@ -320,6 +321,13 @@ static void hRefresh() {
   sendOk();
 }
 
+static void hWifiForget() {
+  sendOk();
+  delay(300);            // let the 200 reach the app before we drop the network
+  netForgetWifi();       // clears saved Wi-Fi + arms the setup portal
+  ESP.restart();         // reboots straight into "choose your Wi-Fi" mode
+}
+
 static void hIndex() {
   File f = LittleFS.open("/www/index.html", "r");
   if (!f) {
@@ -350,6 +358,7 @@ void webBegin() {
   server.on("/api/settings", HTTP_POST, hSettingsPost);
   server.on("/api/spotify", HTTP_POST, hSpotifyCreds);
   server.on("/api/refresh", HTTP_POST, hRefresh);
+  server.on("/api/wifi/forget", HTTP_POST, hWifiForget);
   server.on("/", HTTP_GET, hIndex);
   server.serveStatic("/manifest.json", LittleFS, "/www/manifest.json", "max-age=86400");
   server.serveStatic("/sw.js", LittleFS, "/www/sw.js", "no-store");
