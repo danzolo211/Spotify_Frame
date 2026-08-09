@@ -57,10 +57,6 @@ static bool assetsOk = false;
 static long     progressAnchorMs = 0;
 static uint32_t progressAnchorAt = 0;
 
-// When she picks a verse/scene in the app while music happens to be playing,
-// hold off the automatic Spotify takeover briefly so her choice stays up.
-static uint32_t idleHoldUntil = 0;
-
 // ------------------------------------------------------------ helpers
 static bool timeSynced() { return time(nullptr) > 1600000000; }
 
@@ -181,6 +177,7 @@ static void spotifyTick() {
   Track t;
   int r = spotifyPoll(t);
   bool active = false;
+  bool debouncingNew = false;   // waiting on the stability debounce to show a song
 
   if (r == SP_OK) {
     app.trackProgress = t.progress;
@@ -200,37 +197,39 @@ static void spotifyTick() {
     bool showingThis = (app.mode == MODE_SPOTIFY && t.id == committedTrack);
 
     if (showingThis) {
-      // Same song already on the panel. The bottom strip is split so nothing
-      // ghosts: the progress BAR only ever grows (a clean region refresh), while
-      // the elapsed DIGITS and the play/pause ICON change shape, so those go
-      // through the clean (blank-to-white-then-paint) path and can never pile up.
+      // Same song already on the panel. Every timer/icon update is a full
+      // refresh: the digits stay razor-sharp with no e-ink partial-refresh
+      // softening or ghosting, at the cost of a brief flash. The elapsed time is
+      // interpolated locally, so it's correct even though we repaint gently.
       if (t.playing != prevPlaying) {                 // play <-> pause
         prevPlaying = t.playing;
         drawSpotify();
-        epdPushRegionClean(0, 208, SCREEN_W, SCREEN_H - 208);   // whole strip, crisp
+        epdPush(PUSH_FULL);
         lastBarPush = millis();
-      } else if (t.playing && settings.progressS > 0 &&
-                 millis() - lastBarPush >= settings.progressS * 1000UL) {
-        drawSpotify();
-        static uint8_t bottomTick = 0;
-        if (bottomTick++ & 1)
-          epdPush(PUSH_REGION, 0, 254, SCREEN_W, 21);           // bar: smooth grow
-        else
-          epdPushRegionClean(0, 276, 136, SCREEN_H - 276);      // elapsed: crisp
-        lastBarPush = millis();
+      } else if (t.playing && settings.progressS > 0) {
+        // Full refresh flashes, so floor the cadence at 20s to keep it gentle.
+        uint16_t everyS = settings.progressS < 20 ? 20 : settings.progressS;
+        if (millis() - lastBarPush >= everyS * 1000UL) {
+          drawSpotify();
+          epdPush(PUSH_FULL);
+          lastBarPush = millis();
+        }
       }
-    } else if (t.playing && !app.note.active &&
-               (int32_t)(millis() - idleHoldUntil) >= 0) {
-      // Music is playing but the panel is on a verse/note (or a different
-      // song). Bring Now Playing (back) up. A note keeps priority until it
-      // ends; a just-picked verse holds for idleHoldUntil. Debounce skips so a
-      // skip-storm settles to one refresh of the song she lands on.
+    } else if (t.playing && !app.note.active) {
+      // Music is playing but the panel is on a verse (or a different song).
+      // Music has priority, so bring Now Playing (back) up. A note keeps
+      // priority until it ends. The debounce lets a skip-storm settle to one
+      // refresh of the song she lands on; debouncingNew re-polls the moment the
+      // debounce clears so a newly-started song appears promptly.
       if (t.id != pendingTrack) {
         pendingTrack = t.id;
         pendingSince = millis();
         pendingInfo = t;
+        debouncingNew = true;
       } else if (millis() - pendingSince >= TRACK_STABLE_MS) {
         commitTrack(t);
+      } else {
+        debouncingNew = true;
       }
     }
   } else if (r == SP_IDLE) {
@@ -250,6 +249,12 @@ static void spotifyTick() {
           ? POLL_ACTIVE_MS : POLL_IDLE_MS;
   if (r == SP_ERROR) interval = 15000;
   if (r == SP_COOLDOWN) interval = max(spotifyCooldownMs() + 500, (uint32_t)5000);
+  // A newly-started song is one poll away from clearing the debounce; re-poll
+  // right when it clears (not a full interval later) so it appears promptly.
+  if (debouncingNew) {
+    uint32_t elapsed = millis() - pendingSince;
+    interval = elapsed < TRACK_STABLE_MS ? (TRACK_STABLE_MS - elapsed + 50) : 50;
+  }
   nextPollAt = millis() + interval;
 }
 
@@ -359,19 +364,23 @@ static void processPending() {
     String cat = p.verseCat;
     p.showVerseId = -2;
     p.verseCat = "";
-    app.note.active = false;   // an explicit verse pick dismisses any lingering
-                               // note, so it can't resurrect via backToIdleScreen
-    idleHoldUntil = millis() + 60000;  // keep her pick up even if music is on
-    if (id == -1) showRandomVerse(cat);
-    else showVerseById(id);
+    // Music has priority: while a song is playing, Now Playing stays and the
+    // verse pick is ignored (it takes effect once music is paused/stopped), so
+    // the frame can never get stuck off Now Playing during a song.
+    if (!app.trackPlaying) {
+      app.note.active = false;   // an explicit verse pick dismisses any lingering
+                                 // note, so it can't resurrect via backToIdleScreen
+      if (id == -1) showRandomVerse(cat);
+      else showVerseById(id);
+    }
   }
   if (p.showBgId >= 0) {
     int bg = p.showBgId;
     p.showBgId = -1;
-    if ((app.mode == MODE_VERSE || app.mode == MODE_NOTE) &&
+    if (!app.trackPlaying &&           // (ignored while music is playing)
+        (app.mode == MODE_VERSE || app.mode == MODE_NOTE) &&
         app.verseId >= 0 && bg < bgsCount()) {
-      app.note.active = false; // a new-scene pick also drops the note and
-      idleHoldUntil = millis() + 60000;
+      app.note.active = false; // a new-scene pick also drops the note
       showVerseById(app.verseId, bg);   // re-skins the verse (back to SCRIPTURE)
     }
   }

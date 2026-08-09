@@ -31,11 +31,13 @@ static const SpecialDate SPECIAL_DATES[] = {
 // ---------- behavior defaults (all changeable live in the app) ----------
 #define DEF_VERSE_MIN    20   // minutes between verses
 #define DEF_IDLE_MIN     3    // minutes of Spotify silence before verses return
-#define DEF_PROGRESS_S   10   // progress-bar update seconds (0 = frozen bar).
+#define DEF_PROGRESS_S   20   // Now-Playing timer update seconds (0 = frozen).
                               // The elapsed time is interpolated locally between
                               // Spotify polls, so it stays truthful even though
-                              // the panel only repaints the bar this often.
-                              // (Also changeable live in the app's Settings.)
+                              // the panel only repaints this often. Each update is
+                              // a full refresh (crisp digits, no e-ink ghosting)
+                              // with a brief flash, so it's floored to 20s to keep
+                              // flashing gentle. (Also changeable in Settings.)
 #define DEF_QUIET_START  23   // hour the screen goes still for the night
 #define DEF_QUIET_END    7
 
@@ -48,7 +50,8 @@ static const SpecialDate SPECIAL_DATES[] = {
 
 // ---------- Spotify polling ----------
 #define POLL_ACTIVE_MS   5000
-#define POLL_IDLE_MS     15000   // how fast music is noticed when nothing's on
+#define POLL_IDLE_MS     5000    // how fast music is noticed when nothing's on
+                                 // (kept snappy so Now Playing appears promptly)
 
 // ---------- network ----------
 #define MDNS_NAME        "graceframe"   // app lives at http://graceframe.local
