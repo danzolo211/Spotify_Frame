@@ -578,9 +578,18 @@ $("#btnWifi").onclick = async () => {
   if (!confirm("Restart the frame into Wi-Fi setup?\n\nYou'll then join the "
     + "'GraceFrame-Setup' network to choose a Wi-Fi. Your verses, scenes and "
     + "the Spotify link are kept.")) return;
-  // the frame replies, then reboots into the portal — the connection drops, so
-  // don't depend on the response
-  try { await post("/api/wifi/forget", {}); } catch (e) {}
+  // The frame answers with JSON, then reboots into the portal (the connection
+  // drops). If the fetch throws, it's already rebooting = success. But OLD
+  // firmware without this endpoint just serves the HTML page (200), so a
+  // non-JSON reply means "endpoint missing -> flash the new firmware first".
+  try {
+    const r = await fetch("/api/wifi/forget", {method:"POST",
+      headers:{"Content-Type":"application/json"}, body:"{}"});
+    if (!(r.headers.get("content-type") || "").includes("json")) {
+      toast("Update the frame's firmware first — then this button works");
+      return;
+    }
+  } catch (e) { /* connection dropped = it's rebooting into setup = success */ }
   toast("Restarting into setup — join 'GraceFrame-Setup' Wi-Fi in ~15s");
 };
 $("#btnSp").onclick = async () => {
