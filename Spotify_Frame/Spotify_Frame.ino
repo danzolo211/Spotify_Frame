@@ -81,7 +81,17 @@ static bool inQuietHours() {
 // Pick a background that actually has room for this verse. Tries a handful of
 // random (recent-avoiding) scenes; if none fit — a very long verse — it falls
 // back to the roomiest one it saw, so the words are never chopped off.
-static int pickBgFor(const String& text, bool night) {
+static int pickBgFor(const String& text, bool night, const String& theme = "") {
+  // a themed verse (e.g. "water") first tries a matching scene that fits, so the
+  // wave verses land on the wave scenes; otherwise the normal rotation runs.
+  if (theme.length()) {
+    for (int tries = 0; tries < 10; tries++) {
+      int bg = bgsPickThemed(theme.c_str(), night);
+      if (bg < 0) break;
+      const BgInfo& b = bgsGet(bg);
+      if (renderVerseFits(text, b.zw - 12, b.zh)) return bg;
+    }
+  }
   int best = -1;
   long bestCap = -1;
   for (int tries = 0; tries < 24; tries++) {
@@ -100,7 +110,7 @@ static void showRandomVerse(const String& cat = "", int forceBg = -1) {
   if (id < 0) return;
   Verse v;
   if (!versesGet(id, v)) return;
-  int bg = (forceBg >= 0) ? forceBg : pickBgFor(v.text, isNightNow());
+  int bg = (forceBg >= 0) ? forceBg : pickBgFor(v.text, isNightNow(), v.cat);
   renderVerse(v, bg);
   epdPush(PUSH_FULL);
   app.mode = MODE_VERSE;
@@ -113,7 +123,7 @@ static void showRandomVerse(const String& cat = "", int forceBg = -1) {
 static void showVerseById(int id, int forceBg = -1) {
   Verse v;
   if (!versesGet(id, v)) return;
-  int bg = (forceBg >= 0) ? forceBg : pickBgFor(v.text, isNightNow());
+  int bg = (forceBg >= 0) ? forceBg : pickBgFor(v.text, isNightNow(), v.cat);
   renderVerse(v, bg);
   epdPush(PUSH_FULL);
   app.mode = MODE_VERSE;

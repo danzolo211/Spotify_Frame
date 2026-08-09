@@ -44,8 +44,22 @@ INK, PAPER = 0, 255      # grayscale values we actually use
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-BG_DIR = os.path.join(ROOT, "GraceFrame", "data", "bg")
-WWW_DIR = os.path.join(ROOT, "GraceFrame", "data", "www")
+
+
+def _sketch_data():
+    """Locate the Arduino sketch's data/ dir (holds bg/ + www/). The sketch was
+    renamed GraceFrame -> Spotify_Frame; detect whichever actually exists so
+    regeneration always lands on the real firmware assets, never a stray tree."""
+    for cand in ("Spotify_Frame", "GraceFrame"):
+        d = os.path.join(ROOT, cand, "data")
+        if os.path.isdir(os.path.join(d, "bg")):
+            return d
+    return os.path.join(ROOT, "Spotify_Frame", "data")
+
+
+DATA_DIR = _sketch_data()
+BG_DIR = os.path.join(DATA_DIR, "bg")
+WWW_DIR = os.path.join(DATA_DIR, "www")
 PREV_DIR = os.path.join(HERE, "previews")
 
 
@@ -136,10 +150,18 @@ def sun_solid(c, x, y, r, val=INK):
 
 
 def sun_lined(c, x, y, r, rays=18, r1=None, w=1.6, val=INK, a0=0, a1=360):
-    """an outlined sun with a ring of straight rays — airy and postcard-y."""
+    """A tidy sun: a solid core, a slim halo ring, and evenly spaced rays that
+    alternate long/short so it reads as a warm sunburst — not a spiky asterisk."""
     r1 = r1 if r1 else r * 2.1
-    sun_rays(c, x, y, r + 5, r1, rays, a0, a1, w=w, val=val)
-    ring(c, x, y, r, w=w, val=val)
+    full = (a1 - a0) % 360 == 0
+    for i in range(rays):
+        frac = i / (rays if full else rays - 1)
+        a = math.radians(a0 + (a1 - a0) * frac)
+        rr = r1 if i % 2 == 0 else r + (r1 - r) * 0.5
+        line(c, (x + (r + 4) * math.cos(a), y + (r + 4) * math.sin(a)),
+             (x + rr * math.cos(a), y + rr * math.sin(a)), w, val)
+    ring(c, x, y, r, w=max(1.4, w), val=val)
+    disc(c, x, y, r * 0.55, val)
 
 
 # ---- ground / water / hatch ------------------------------------
@@ -297,28 +319,31 @@ def tree_round(c, x, base, h, val=INK):
 
 
 def sheep(c, x, y, s_, val=INK):
-    """A small, tidy sheep: a round fleece body with a scalloped top, a dark
-    head on a short neck, and four fine legs. Legible even at postcard size."""
-    # legs first (behind the body)
-    for lx in (-0.24, -0.06, 0.30, 0.48):
-        line(c, (x + lx * s_, y + 0.18 * s_), (x + lx * s_, y + 0.62 * s_),
-             max(1.1, 0.055 * s_), val)
-    # fleece body: an oval with a few soft bumps carved into its crown
-    c.d.ellipse([S * (x - 0.62 * s_), S * (y - 0.34 * s_),
-                 S * (x + 0.5 * s_), S * (y + 0.34 * s_)], fill=val)
-    for bx in (-0.4, -0.16, 0.08, 0.32):
-        disc(c, x + bx * s_, y - 0.34 * s_, 0.15 * s_, val)
-    # head + short neck (facing right, slightly down as if grazing)
-    hx, hy = x + 0.58 * s_, y - 0.12 * s_
-    fill(c, [(x + 0.28 * s_, y - 0.14 * s_), (hx, hy - 0.16 * s_),
-             (hx + 0.02 * s_, hy + 0.18 * s_), (x + 0.30 * s_, y + 0.14 * s_)], val)
-    c.d.ellipse([S * (hx - 0.16 * s_), S * (hy - 0.17 * s_),
-                 S * (hx + 0.19 * s_), S * (hy + 0.17 * s_)], fill=val)
-    disc(c, hx + 0.06 * s_, hy - 0.03 * s_, 0.03 * s_,
-         PAPER if val == INK else INK)   # eye
-    c.d.arc([S * (hx - 0.14 * s_), S * (hy - 0.30 * s_),   # a small ear
-             S * (hx + 0.02 * s_), S * (hy - 0.06 * s_)], 20, 160,
-            fill=val, width=max(1, int(0.05 * s_ * S)))
+    """A sheep that reads even at postcard size: a woolly fleece (bright, with a
+    bold scalloped outline so wool reads as wool, not a dark lump) carrying a
+    small dark head on a short neck, over four fine legs."""
+    paper = PAPER if val == INK else INK
+    for lx in (-0.30, -0.10, 0.20, 0.40):                 # legs (behind the body)
+        line(c, (x + lx * s_, y + 0.16 * s_), (x + lx * s_, y + 0.60 * s_),
+             max(1.2, 0.06 * s_), val)
+    cx, cy, rw, rh = x - 0.04 * s_, y, 0.62 * s_, 0.42 * s_
+    bumps = 11
+    poly = []
+    for i in range(bumps):
+        a = math.pi / 2 + 2 * math.pi * i / bumps
+        rr = 1.0 + 0.13 * math.sin(a * bumps)             # scalloped wool
+        poly.append((cx + rw * rr * math.cos(a), cy + rh * rr * math.sin(a)))
+    poly = smooth(poly + [poly[0]], 8)
+    fill(c, poly, paper)
+    stroke(c, poly, max(1.3, 0.07 * s_), val)
+    hx, hy = x + 0.60 * s_, y - 0.04 * s_                  # dark head, facing right
+    fill(c, [(x + 0.30 * s_, y - 0.06 * s_), (hx - 0.06 * s_, hy - 0.14 * s_),
+             (hx + 0.10 * s_, hy + 0.14 * s_), (x + 0.30 * s_, y + 0.14 * s_)], val)
+    c.d.ellipse([S * (hx - 0.17 * s_), S * (hy - 0.17 * s_),
+                 S * (hx + 0.19 * s_), S * (hy + 0.18 * s_)], fill=val)
+    disc(c, hx + 0.07 * s_, hy - 0.03 * s_, 0.035 * s_, paper)   # eye
+    fill(c, [(hx - 0.10 * s_, hy - 0.13 * s_), (hx - 0.24 * s_, hy - 0.20 * s_),
+             (hx - 0.05 * s_, hy - 0.01 * s_)], val)            # a pricked ear
 
 
 def shepherd(c, x, base, h, val=INK):
@@ -586,7 +611,8 @@ def sc_note_flourish(c):
         line(c, (W / 2 + sgn * 16, 26), (W / 2 + sgn * 52, 26), 0.7)
         dot(c, W / 2 + sgn * 56, 26, 1.8)
     heart(c, W / 2, H - 26, 5)
-    return (46, 54, 308, 188), ["special"]
+    # zone kept just inside the filigree corners so the note never touches the frame
+    return (56, 60, 288, 178), ["special"]
 
 
 def sc_celebration(c):
@@ -677,9 +703,9 @@ def sc_lighthouse(c):
     lx, ly = 322, 146
     ring(c, lx, ly, 5, 1.2)
     sun_rays(c, lx, ly, 7, 12, n=8, w=0.7)
-    stroke(c, [(lx, ly), (250, 44)], 1.0)          # upper edge of the beam
-    stroke(c, [(lx, ly), (214, 96)], 1.0)          # lower edge of the beam
-    for fx, fy in [(238, 60), (226, 78)]:          # two guide rays inside the cone
+    stroke(c, [(lx, ly), (300, 34)], 1.0)          # upper edge of the beam
+    stroke(c, [(lx, ly), (256, 74)], 1.0)          # lower edge (clear of the text)
+    for fx, fy in [(288, 48), (272, 60)]:          # two guide rays inside the cone
         line(c, (lx, ly), (fx, fy), 0.6)
     water_lines(c, 250, 300, x0=0, x1=246, gap=8, w=1.2, seed=7)
     birds(c, [(58, 236), (80, 229), (102, 236)], 7)  # gulls low over the water
@@ -697,11 +723,11 @@ def sc_still_waters(c):
     # valley gap — a clean band of sky up top holds the verse
     hz = 182
     # a paler, farther ridge behind (outline only) for depth
-    far = smooth([(-6, 158), (60, 138), (140, 150), (230, 132), (320, 150),
-                  (W + 6, 140)], 12)
+    far = smooth([(-6, 166), (60, 150), (140, 160), (230, 146), (320, 160),
+                  (W + 6, 152)], 12)
     stroke(c, far, 1.1)
-    Lpeaks = [(-6, 150), (44, 128), (92, 100), (150, 140)]
-    Rpeaks = [(232, 150), (270, 128), (312, 94), (356, 132), (W + 6, 122)]
+    Lpeaks = [(-6, 158), (44, 142), (92, 120), (150, 150)]
+    Rpeaks = [(232, 158), (270, 142), (312, 116), (356, 146), (W + 6, 138)]
     Lridge, Rridge = smooth(Lpeaks, 14), smooth(Rpeaks, 14)
     Lpoly = Lridge + [(Lpeaks[-1][0], hz), (Lpeaks[0][0], hz)]
     Rpoly = Rridge + [(Rpeaks[-1][0], hz), (Rpeaks[0][0], hz)]
@@ -710,7 +736,7 @@ def sc_still_waters(c):
     # carved contour lines rake down each face -> sculpted rock, not flat black
     engrave_ridge(c, Lridge, hz, n=5, gap=9, inset=8, w=1.0, fade=0.42)
     engrave_ridge(c, Rridge, hz, n=6, gap=9, inset=8, w=1.0, fade=0.42)
-    for (px, py) in [(92, 100), (312, 94)]:       # snow caps carved out
+    for (px, py) in [(92, 120), (312, 116)]:       # snow caps carved out
         fill(c, [(px, py + 2), (px - 9, py + 18), (px - 3, py + 15),
                  (px + 1, py + 19), (px + 8, py + 15)], PAPER)
     line(c, (0, hz), (W, hz), 1.0)
@@ -726,7 +752,7 @@ def sc_still_waters(c):
         yy = hz + 8 + k * 12
         hw = 5 + k * 3
         line(c, (191 - hw, yy), (191 + hw, yy), 1.4)
-    return (30, 22, 340, 84), []
+    return (30, 20, 340, 78), []
 
 
 def sc_empty_tomb(c):
@@ -791,7 +817,7 @@ def sc_dove_descending(c):
 def sc_wheat_field(c):
     # a small sheaf of wheat leaning in from the lower left, a low sun at right,
     # and a fine horizon — the whole right side stays open for the verse
-    sun_lined(c, 332, 236, 16, rays=13, r1=30, w=1.1, a0=200, a1=340)
+    sun_lined(c, 344, 252, 15, rays=13, r1=26, w=1.1, a0=202, a1=338)
     hill_outline(c, 250, 10, 1.2, seed_extra=9)
     line(c, (0, 282), (W, 280), 1.0)
     # a gathered sheaf: five stalks fanning from a common foot, each ear reading
@@ -804,19 +830,19 @@ def sc_wheat_field(c):
     line(c, (112, 272), (120, 289), 1.4)
     for gx, ga in [(176, -18), (44, -150), (60, -30)]:    # a few fallen grains
         leaf(c, gx, 289, 5, ga)
-    return (176, 38, 200, 182), []
+    return (176, 38, 200, 178), []
 
 
 def sc_mountain_path(c):
     # a path winding toward distant peaks between two trees — text canvas top.
     # rays fan only upward (a rising sun behind the peak) so nothing rakes down
     # across the meadow and muddles the path
-    sun_lined(c, 200, 150, 16, rays=12, r1=40, w=1.0, a0=182, a1=358)
-    far = smooth([(-6, 176), (60, 140), (130, 168), (200, 128), (280, 166),
-                  (W + 6, 140)], 8)
-    fill(c, far + [(W + 6, 176), (-6, 176)], INK)
-    engrave_ridge(c, far, 176, n=4, gap=8, inset=6, w=1.0, fade=0.28)
-    for (px, py) in [(200, 128), (60, 140)]:   # snow on the two high peaks
+    sun_lined(c, 200, 166, 15, rays=13, r1=32, w=1.0, a0=184, a1=356)
+    far = smooth([(-6, 184), (60, 152), (130, 178), (200, 142), (280, 176),
+                  (W + 6, 152)], 8)
+    fill(c, far + [(W + 6, 190), (-6, 190)], INK)
+    engrave_ridge(c, far, 190, n=4, gap=8, inset=6, w=1.0, fade=0.28)
+    for (px, py) in [(200, 142), (60, 152)]:   # snow on the two high peaks
         fill(c, [(px, py + 2), (px - 8, py + 16), (px - 2, py + 13),
                  (px + 2, py + 17), (px + 7, py + 13)], PAPER)
     # meadow line
@@ -835,11 +861,11 @@ def sc_mountain_path(c):
         hw = 30 * (1 - t) + 3
         line(c, (200 - hw, y), (200 + hw, y), 0.9)
     # flanking trees, kept a little lighter so the scene doesn't go bottom-heavy
-    tree_round(c, 44, 300, 78)
-    pine(c, 92, 300, 56)
-    tree_round(c, 360, 300, 70)
-    pine(c, 312, 300, 50)
-    return (44, 26, 312, 100), []
+    tree_round(c, 44, 300, 66)
+    pine(c, 92, 300, 50)
+    tree_round(c, 360, 300, 60)
+    pine(c, 312, 300, 46)
+    return (44, 24, 312, 98), []
 
 
 def sc_open_book(c):
@@ -902,6 +928,171 @@ def sc_moonlit_hills(c):
     return zone, ["night", "wink"]
 
 
+# ================================================================ ukiyo-e / water
+def _claw(c, x, y, ang, ln, wd=3.0, val=INK):
+    """A curling foam finger (Hokusai's grasping claw): a tapered blade that
+    hooks over at the tip."""
+    a = math.radians(ang)
+    perp = a + math.pi / 2
+    spine = []
+    for t in (0.0, 0.4, 0.72, 1.0):
+        curl = 0.7 * t * t
+        px = x + ln * t * math.cos(a) + ln * curl * math.cos(a + 1.6)
+        py = y + ln * t * math.sin(a) + ln * curl * math.sin(a + 1.6)
+        spine.append((px, py))
+    left, right = [], []
+    for i, (px, py) in enumerate(spine):
+        wt = wd * (1 - i / len(spine)) + 0.5
+        left.append((px + wt * math.cos(perp), py + wt * math.sin(perp)))
+        right.append((px - wt * math.cos(perp), py - wt * math.sin(perp)))
+    fill(c, left + right[::-1], val)
+
+
+def foam_scallop(c, pts, r0=5.5, val=INK):
+    """A ribbon of foam bubbles (paper discs with a thin ink rim) along a crest."""
+    rng = c.rng
+    for (x, y) in pts:
+        r = r0 * rng.uniform(0.7, 1.15)
+        disc(c, x, y, r, PAPER)
+        ring(c, x, y, r, 1.2, val)
+
+
+def fuji(c, fx, fbase, fh, snow=0.30, ridges=True, val=INK):
+    """One iconic Mt. Fuji: gently concave slopes flaring to a wide skirt, a
+    sharp summit, and a carved snow crown with the classic jagged hem."""
+    paper = PAPER if val == INK else INK
+    peak = fbase - fh
+    exp = 1.55
+    left = []
+    N = 30
+    for i in range(N + 1):
+        t = i / N                              # 0 at the skirt, 1 at the summit
+        left.append((fx - fh * 0.98 * (1 - t), fbase - fh * (t ** exp)))
+    fill(c, left + [(2 * fx - x, y) for (x, y) in reversed(left)], val)
+    # snow crown: a clean cap ending in the classic jagged hem
+    ht = (1 - snow) ** (1 / exp)
+    hw = fh * 0.98 * (1 - ht)
+    hem_y = fbase - fh * (1 - snow)
+    cap = [(fx, peak)]
+    n = 7
+    for i in range(n + 1):
+        t = i / n
+        cap.append((fx - hw + 2 * hw * t, hem_y + (fh * 0.06 if i % 2 else 0)))
+    fill(c, cap, paper)
+    if ridges:
+        for sgn in (-1, 1):
+            line(c, (fx + sgn * fh * 0.04, peak + fh * snow * 1.1),
+                 (fx + sgn * fh * 0.5, fbase - fh * 0.12), 1.0, paper)
+
+
+def crane(c, x, y, s_, val=INK):
+    """A crane in flight (side/below view): a slim spindle body, a long neck to a
+    small head + beak reaching forward, trailing legs, and two long wings swept
+    up and out in a wide shallow V — an unmistakable flying-bird silhouette."""
+    body = smooth([(x - 0.30 * s_, y + 0.05 * s_), (x + 0.02 * s_, y - 0.02 * s_),
+                   (x + 0.30 * s_, y + 0.01 * s_), (x + 0.02 * s_, y + 0.13 * s_),
+                   (x - 0.28 * s_, y + 0.12 * s_)], 12)
+    fill(c, body, val)
+    neck = smooth([(x + 0.24 * s_, y), (x + 0.50 * s_, y - 0.06 * s_),
+                   (x + 0.72 * s_, y - 0.11 * s_)], 10)             # neck forward
+    stroke(c, neck, max(1.6, 0.06 * s_), val)
+    disc(c, x + 0.73 * s_, y - 0.12 * s_, 0.05 * s_, val)           # head
+    line(c, (x + 0.78 * s_, y - 0.12 * s_), (x + 0.92 * s_, y - 0.13 * s_),
+         1.3, val)                                                  # beak
+    stroke(c, smooth([(x - 0.26 * s_, y + 0.10 * s_),                # trailing legs
+                      (x - 0.55 * s_, y + 0.14 * s_),
+                      (x - 0.80 * s_, y + 0.12 * s_)], 8),
+           max(1.3, 0.04 * s_), val)
+    for sgn in (-1, 1):                                             # swept-V wings
+        wing = smooth([(x + 0.03 * s_, y - 0.01 * s_),
+                       (x + sgn * 0.34 * s_, y - 0.34 * s_),
+                       (x + sgn * 0.80 * s_, y - 0.54 * s_),
+                       (x + sgn * 0.82 * s_, y - 0.44 * s_),
+                       (x + sgn * 0.38 * s_, y - 0.16 * s_),
+                       (x + 0.05 * s_, y + 0.07 * s_)], 14)
+        fill(c, wing, val)
+
+
+def cloud_band(c, cy, x0, x1, h=12):
+    """A flat white mist band drifting across the slopes (a scalloped lozenge);
+    call it clipped to the mountain so it never dangles into open sky."""
+    top = [(x, cy - h / 2 - 2.6 * math.sin(x / 34)) for x in range(x0, x1 + 1, 6)]
+    bot = [(x, cy + h / 2 + 2.6 * math.sin(x / 29 + 1.2))
+           for x in range(x0, x1 + 1, 6)]
+    fill(c, top + bot[::-1], PAPER)
+
+
+def sc_great_wave(c):
+    """After Hokusai's Great Wave: a towering breaker on the left flinging foam
+    claws, a small Mt. Fuji off to the right, ruled swells below — a generous
+    upper-right sky carries the verse."""
+    rng = c.rng
+    # --- distant Fuji, low and to the right, clear of the text sky
+    fuji(c, 250, 216, 44, snow=0.4)
+    # --- ruled ocean swells low across the frame (kept below the text zone)
+    water_lines(c, 214, 262, x0=0, x1=W, gap=9, w=1.3, seed=21)
+    water_lines(c, 224, 258, x0=0, x1=W, gap=22, w=1.0, val=INK, seed=8)
+    # --- the great wave: a solid breaking mass in the left third, then carved
+    body = smooth([(-54, 300), (-54, 176), (-30, 150), (2, 120), (40, 88),
+                   (78, 66), (114, 62), (142, 78), (154, 104),    # crest + lip
+                   (144, 130), (117, 137), (104, 158),            # under the lip
+                   (82, 156), (60, 142), (38, 146), (16, 164),    # scalloped front
+                   (-6, 182), (-30, 200), (-54, 214)], 14)
+    fill(c, body, INK)
+    # the barrel: carve the eye of the wave back to paper
+    barrel = smooth([(104, 156), (104, 128), (116, 110), (136, 106), (151, 118),
+                     (146, 136), (128, 150), (104, 156)], 12)
+    fill(c, barrel, PAPER)
+    ring(c, 126, 130, 6, 1.3, INK)
+    # engraved contour lines rake up the wave's front face (linocut water)
+    for k in range(1, 5):
+        seg = smooth([(-54 + k * 4, 206 - k * 8), (-6, 184 - k * 9),
+                      (26, 158 - k * 8), (54, 140 - k * 7),
+                      (78, 132 - k * 6)], 10)
+        stroke(c, seg, 1.0, PAPER)
+    # turbulent foam: a bold back rank of bubbles + a fine froth, then grasping
+    # claws curling off the crest (all kept left of the sky zone)
+    crest = smooth([(18, 100), (58, 76), (100, 66), (136, 72), (148, 96)], 5)
+    foam_scallop(c, crest[::2], r0=6.5)
+    foam_scallop(c, [(x + 3, y - 5) for (x, y) in crest[1::3]], r0=3.6)
+    for (bx, by, ang, ln, wd) in [(100, 64, -12, 30, 3.6), (126, 68, 4, 26, 3.2),
+                                  (140, 84, 26, 16, 2.8), (70, 74, -22, 24, 3.2)]:
+        _claw(c, bx, by, ang, ln, wd)
+    # a few flecks of spray flung ahead of the crest (kept left of the zone)
+    for _ in range(9):
+        sx, sy = rng.uniform(104, 150), rng.uniform(52, 96)
+        dot(c, sx, sy, rng.uniform(1.0, 1.8), INK)
+    return (160, 34, 226, 124), ["water"]
+
+
+def sc_fuji_serene(c):
+    """South-wind Fuji: one bold peak with a snow crown and low drifting clouds
+    — a generous clean sky holds the verse."""
+    fuji(c, 200, 270, 120, snow=0.30)
+    for (cy, x0, x1) in [(224, 150, 250), (248, 122, 278)]:
+        cloud_band(c, cy, x0, x1)
+    line(c, (0, 288), (W, 286), 1.0)          # a quiet groundline
+    return (30, 20, 340, 122), ["water"]
+
+
+def sc_crane_moon(c):
+    """A crane crossing a great low moon over a moonlit sea — white ink on night.
+    A wide clean dark sky at the left carries the verse."""
+    zone = (22, 28, 252, 158)
+    stars(c, 42, zone=zone, y1=184, vmin=210)
+    disc(c, 330, 120, 47, 255)                  # the great moon
+    crane(c, 330, 122, 42, val=INK)             # crane silhouetted on the moon
+    band = [(x, 150 + 3 * math.sin(x / 22)) for x in range(300, 366, 5)]
+    stroke(c, band, 2.6, INK)                   # a faint wisp drifts below it
+    line(c, (0, 232), (W, 230), 1.2, 255)       # sea horizon
+    water_lines(c, 238, 292, x0=0, x1=W, gap=8, w=1.2, val=255, seed=4)
+    for k in range(5):                          # the moon's shimmer on the water
+        yy, hw = 238 + k * 11, 6 + k * 3
+        line(c, (330 - hw, yy), (330 + hw, yy), 1.3, 255)
+    pine(c, 42, 300, 58, val=255)               # a pine bough in the near corner
+    return zone, ["night", "water", "wink"]
+
+
 SCENES = [
     ("note-flourish", sc_note_flourish),
     ("celebration", sc_celebration),
@@ -918,11 +1109,14 @@ SCENES = [
     ("sailboat-dawn", sc_sailboat_dawn),
     ("starry-night", sc_starry_night),
     ("moonlit-hills", sc_moonlit_hills),
+    ("great-wave", sc_great_wave),
+    ("fuji-serene", sc_fuji_serene),
+    ("crane-moon", sc_crane_moon),
 ]
 
 
 # ---------------------------------------------------------------- export
-NIGHT_SCENES = {"starry-night", "moonlit-hills"}
+NIGHT_SCENES = {"starry-night", "moonlit-hills", "crane-moon"}
 
 
 def export(idx, name, fn):

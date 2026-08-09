@@ -29,10 +29,20 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from gfxfont import GFXFont          # noqa: E402  (needs HERE on the path first)
 
-DATA = os.path.join(os.path.dirname(HERE), "GraceFrame", "data")
+def _sketch_dir():
+    """Sketch folder holding data/ + font_*.h. Renamed GraceFrame ->
+    Spotify_Frame; detect whichever exists so the mirror reads real assets."""
+    root = os.path.dirname(HERE)
+    for cand in ("Spotify_Frame", "GraceFrame"):
+        if os.path.isdir(os.path.join(root, cand, "data", "bg")):
+            return os.path.join(root, cand)
+    return os.path.join(root, "Spotify_Frame")
+
+
+GF_DIR = _sketch_dir()
+DATA = os.path.join(GF_DIR, "data")
 WWW = os.path.join(DATA, "www")
 BG_DIR = os.path.join(DATA, "bg")
-GF_DIR = os.path.join(os.path.dirname(HERE), "GraceFrame")
 
 SW, SH = 400, 300           # screen size (H is taken by the request handler)
 ADD_QUOTES = True
@@ -47,8 +57,12 @@ with open(os.path.join(BG_DIR, "index.json")) as f:
     BGS = json.load(f)
 BG_BY_NAME = {b["name"]: b for b in BGS}
 
+def _day(b):
+    return "special" not in b["tags"] and "night" not in b["tags"]
+
+
 STATE = {"verse": random.randrange(len(VERSES)),
-         "bg": random.choice([b["i"] for b in BGS if not b["tags"]]),
+         "bg": random.choice([b["i"] for b in BGS if _day(b)]),
          "favs": set(), "note": None, "hist": []}
 
 # Remote notes: poll the same private ntfy.sh topic the firmware listens on, so
@@ -228,9 +242,14 @@ def _fits(bg, text):
 
 
 def pick_bg_for(verse_i):
-    """Choose a rotating (day) background with room for this verse."""
-    text = VERSES[verse_i]["t"]
-    pool = [b for b in BGS if not b["tags"]]
+    """Choose a rotating (day) background with room for this verse — mirroring
+    the firmware, a themed verse (e.g. 'water') prefers a matching scene."""
+    v = VERSES[verse_i]
+    text, theme = v["t"], v.get("c", "")
+    pool = [b for b in BGS if _day(b)]
+    themed = [b["i"] for b in pool if theme in b["tags"] and _fits(b, text)]
+    if themed:
+        return random.choice(themed)
     fitting = [b["i"] for b in pool if _fits(b, text)]
     if fitting:
         return random.choice(fitting)

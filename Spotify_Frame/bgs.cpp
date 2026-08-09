@@ -29,9 +29,11 @@ bool bgsBegin() {
     b.zx = z[0]; b.zy = z[1]; b.zw = z[2]; b.zh = z[3];
     b.whiteInk = (strcmp(o["ink"] | "black", "white") == 0);
     b.night = b.special = false;
+    b.theme = "";
     for (JsonVariant t : o["tags"].as<JsonArray>()) {
       if (t == "night") b.night = true;
-      if (t == "special") b.special = true;
+      else if (t == "special") b.special = true;
+      else b.theme = t.as<String>();     // e.g. "water" -> verse-theme affinity
     }
     if (b.name == "note-flourish") noteIdx = nBgs;
     if (b.name == "celebration") celebIdx = nBgs;
@@ -74,4 +76,17 @@ int bgsPickRandom(bool night) {
     return i;
   }
   return 2 % nBgs;
+}
+
+// Pick a non-special scene whose theme matches (e.g. a water/wave scene for a
+// water verse) at the right day/night polarity; -1 when there is no such scene.
+int bgsPickThemed(const char* theme, bool night) {
+  for (int tries = 0; tries < 60; tries++) {
+    int i = random(nBgs);
+    const BgInfo& b = bgs[i];
+    if (b.special || b.night != night) continue;
+    if (b.theme != theme) continue;
+    return i;
+  }
+  return -1;
 }

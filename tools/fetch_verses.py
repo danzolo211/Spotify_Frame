@@ -40,7 +40,19 @@ import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT_DIR = os.path.join(ROOT, "GraceFrame", "data")
+
+
+def _sketch_data():
+    """The sketch's data/ dir. Renamed GraceFrame -> Spotify_Frame; detect
+    whichever exists so the library lands on the real firmware assets."""
+    for cand in ("Spotify_Frame", "GraceFrame"):
+        d = os.path.join(ROOT, cand, "data")
+        if os.path.isdir(os.path.join(d, "bg")):
+            return d
+    return os.path.join(ROOT, "Spotify_Frame", "data")
+
+
+OUT_DIR = _sketch_data()
 CACHE = os.path.join(HERE, "verse_cache")
 
 MAX_LEN = 290          # verses longer than this can't render beautifully
@@ -69,6 +81,20 @@ OVERRIDES = {
     "2 Corinthians 12:9": "My grace is sufficient for you, for my power is "
                           "made perfect in weakness.",
     "Nehemiah 8:10": "Do not grieve, for the joy of the Lord is your strength.",
+    # water / storm verses for the Great Wave & ukiyo-e scenes (exact NIV,
+    # trimmed where needed to render beautifully on the 1-bit panel)
+    "Psalm 89:9": "You rule over the surging sea; when its waves mount up, you "
+                  "still them.",
+    "Psalm 93:4": "Mightier than the breakers of the sea, the Lord on high is "
+                  "mighty.",
+    "Psalm 107:29": "He stilled the storm to a whisper; the waves of the sea "
+                    "were hushed.",
+    "Job 38:11": "This far you may come and no farther; here is where your proud "
+                 "waves halt.",
+    "Mark 4:39": "He rebuked the wind and said to the waves, 'Quiet! Be "
+                 "still!'",
+    "Matthew 8:26": "He got up and rebuked the winds and the waves, and it was "
+                    "completely calm.",
 }
 
 BOOK_IDS = {
@@ -239,6 +265,14 @@ REFS = [
     ("1 John", 4, "19", "love"),
     ("Revelation", 21, "4", "hope"),
     ("Nehemiah", 8, "10", "joy"),
+
+    # --- "he stills the storm" — themed to the wave / ukiyo-e scenes ---
+    ("Psalm", 89, "9", "water"),
+    ("Psalm", 93, "4", "water"),
+    ("Psalm", 107, "29", "water"),
+    ("Job", 38, "11", "water"),
+    ("Mark", 4, "39", "water"),
+    ("Matthew", 8, "26", "water"),
 ]
 
 UNICODE_MAP = {
@@ -373,14 +407,6 @@ def main():
     done = 0
 
     for book, chapter, spec, cat in REFS:
-        key = (book, chapter)
-        if key not in chapters:
-            done += 1
-            print(f"[{done}/{total_chapters}] {book} {chapter}")
-            chapters[key] = {v["verse"]: v["text"]
-                             for v in fetch_chapter(tr, BOOK_IDS[book], chapter)}
-        chap = chapters[key]
-
         nums, is_range = parse_spec(spec)
         ref = f"{book} {chapter}:{spec}" if is_range \
             else f"{book} {chapter}:{nums[0]}"
@@ -388,14 +414,26 @@ def main():
             continue
         seen.add(ref)
 
-        raws = [chap.get(n) for n in nums]
-        if any(r is None for r in raws):
-            skipped_missing += 1
-            print(f"    !! missing {ref}")
-            continue
-        # stitch the range together, then clean once so a quotation that
-        # opens in one verse and closes in the next stays balanced
-        text = OVERRIDES.get(ref) or clean(" ".join(raws))
+        # a curated override supplies exact NIV text directly, so verses whose
+        # chapter isn't cached (or when offline) never touch the network
+        if ref in OVERRIDES:
+            text = OVERRIDES[ref]
+        else:
+            key = (book, chapter)
+            if key not in chapters:
+                done += 1
+                print(f"[{done}/{total_chapters}] {book} {chapter}")
+                chapters[key] = {v["verse"]: v["text"]
+                                 for v in fetch_chapter(tr, BOOK_IDS[book], chapter)}
+            chap = chapters[key]
+            raws = [chap.get(n) for n in nums]
+            if any(r is None for r in raws):
+                skipped_missing += 1
+                print(f"    !! missing {ref}")
+                continue
+            # stitch the range together, then clean once so a quotation that
+            # opens in one verse and closes in the next stays balanced
+            text = clean(" ".join(raws))
         if len(text) > MAX_LEN:
             skipped_long += 1
             print(f"    .. too long ({len(text)}) {ref}")
