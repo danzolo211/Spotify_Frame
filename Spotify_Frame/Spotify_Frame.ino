@@ -301,7 +301,8 @@ static void spotifyTick() {
 // clean-refreshes fall behind fast lines it always converges on the current one.
 static void lyricsTick() {
   if (!settings.lyricsOn) return;
-  lyricsPoll();   // performs a due fetch (blocks <=3s per request, once per song)
+  lyricsPoll();   // runs a due fetch once per song; bounded (stops on the first
+                  // unreachable request) so it can't freeze the loop for long
 
   if (app.mode != MODE_SPOTIFY) { lyrShownState = LX_NONE; lyrShownIdx = -3; return; }
 

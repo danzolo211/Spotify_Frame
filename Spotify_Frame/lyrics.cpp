@@ -66,7 +66,10 @@ static int lrcRequest(const String& url, bool isSearch,
     Serial.printf("lrc GET -> %d %s\n", code, url.c_str());
     return code;                                        // 404 etc. -> caller decides
   }
-  if (http.getSize() > LRC_MAX_BYTES) { http.end(); return 200; }  // too big -> "no lyrics"
+  // Refuse anything too big to hold. A search reply with no Content-Length
+  // (chunked) can't be bounded before reading, so treat it as "no lyrics" too.
+  int clen = http.getSize();
+  if (clen > LRC_MAX_BYTES || (isSearch && clen < 0)) { http.end(); return 200; }
 
   // Read the whole body in one bulk transfer, THEN parse from memory. Streaming
   // the parse straight off the TLS socket reads byte-by-byte, which is slow
@@ -179,7 +182,14 @@ static bool doFetch() {
   String synced;
   bool instrumental = false;
 
-  bool neterr = false;
+  // `netdown` = a request failed at the network level (unreachable/timeout), as
+  // opposed to a clean 404. A clean 404 means "keep trying other endpoints" (for
+  // coverage); a network failure means LrcLib is unreachable, so we STOP after
+  // the first one instead of burning ~8s each on 4 more doomed requests, and let
+  // the backoff retry later. `done` short-circuits once we have an answer.
+  bool netdown = false;
+  auto done = [&]() { return synced.length() || instrumental || netdown; };
+
   // album_name is deliberately omitted (single vs. album vs. deluxe mismatches
   // 404 constantly). Artists to try: the full "A, B" Spotify string first, then
   // just the lead artist -- collabs live under the lead artist on LrcLib, so
@@ -190,31 +200,31 @@ static bool doFetch() {
   int comma = tgtArtist.indexOf(',');
   if (comma > 0) { artists[1] = tgtArtist.substring(0, comma); nArtists = 2; }
 
-  for (int a = 0; a < nArtists && !synced.length() && !instrumental; a++) {
+  for (int a = 0; a < nArtists && !done(); a++) {
     String get = "https://lrclib.net/api/get?artist_name=" + urlenc(artists[a]) +
                  "&track_name=" + urlenc(tgtTrack);
     // 1) exact match INCLUDING duration -> the best-timed version when it lines up
-    if (tgtDur > 0 && !synced.length() && !instrumental) {
+    if (tgtDur > 0 && !done()) {
       if (lrcRequest(get + "&duration=" + String(tgtDur / 1000), false,
-                     synced, instrumental) < 0) neterr = true;
+                     synced, instrumental) < 0) netdown = true;
     }
     // 2) loose match on just artist+track -> LrcLib's best version. Rescues songs
     //    whose Spotify length differs from LrcLib's by more than the exact
     //    endpoint tolerates (After Hours, singles/edits) -- a small ~10KB reply.
-    if (!synced.length() && !instrumental) {
-      if (lrcRequest(get, false, synced, instrumental) < 0) neterr = true;
+    if (!done()) {
+      if (lrcRequest(get, false, synced, instrumental) < 0) netdown = true;
     }
   }
   // 3) fuzzy search, last resort. Auto-skips when the response is too big to hold
   //    (popular queries are hundreds of KB), so it only helps the rare obscure
   //    track with a tiny result set.
-  if (!synced.length() && !instrumental) {
+  if (!done()) {
     if (lrcRequest("https://lrclib.net/api/search?artist_name=" + urlenc(tgtArtist) +
                    "&track_name=" + urlenc(tgtTrack), true, synced, instrumental) < 0)
-      neterr = true;
+      netdown = true;
   }
 
-  if (!synced.length() && !instrumental && neterr) return false;   // transient -> retry
+  if (!synced.length() && !instrumental && netdown) return false;  // unreachable -> retry
   if (instrumental && !synced.length()) state = LX_INSTRUMENTAL;
   else if (!synced.length()) state = LX_UNAVAILABLE;
   else { parseLrc(synced); state = (lineCount > 0) ? LX_READY : LX_UNAVAILABLE; }
