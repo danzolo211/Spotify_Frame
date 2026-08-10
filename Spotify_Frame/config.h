@@ -72,9 +72,11 @@ static const SpecialDate SPECIAL_DATES[] = {
 #define NP_BAR_STRIP_H  34
 
 #define LYRIC_MIN_GAP_MS        500      // min ms between lyric repaints (non-blocking skip)
-#define LYRIC_FETCH_TIMEOUT_MS  3000     // strict per-request cap (connect + read)
-#define LYRIC_MAX_LINES         200      // hard bound on stored lines
-#define LYRIC_BUF_BYTES         8192     // PSRAM text buffer for one song's lyrics
+#define LYRIC_FETCH_TIMEOUT_MS  8000     // body-read cap (matches the Spotify client;
+                                         // 3s was too short to read a ~10KB TLS body and
+                                         // the parse timed out -> "no lyrics")
+#define LYRIC_MAX_LINES         240      // hard bound on stored lines
+#define LYRIC_BUF_BYTES         12288    // PSRAM text buffer for one song's lyrics
 #define LYRIC_LEAD_MS           0        // tunable sync offset (negative = show earlier)
 #define LYRIC_MAX_TRIES         3        // fetch attempts before giving up (backoff)
 #define LYRIC_RETRY_MS          10000    // wait between failed fetch attempts

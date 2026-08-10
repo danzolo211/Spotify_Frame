@@ -35,5 +35,6 @@ void lyricsPoll();
 int  lyricsState();
 int  lyricsCount();                    // parsed line count (diagnostics)
 int  lyricsLastHttp();                 // last LrcLib HTTP status (diagnostics)
+int  lyricsLastLen();                  // last LrcLib body length (diagnostics)
 int  lyricsActiveIndex(uint32_t ms);   // last line with time_ms <= ms, else -1
 const char* lyricsText(int idx);       // "" if out of range

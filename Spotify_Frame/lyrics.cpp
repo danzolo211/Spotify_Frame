@@ -16,6 +16,7 @@ static LyricLine lines[LYRIC_MAX_LINES];
 static int       lineCount = 0;
 static int       state = LX_NONE;
 static int       g_lastHttp = 0;    // last LrcLib HTTP status (diagnostics)
+static int       g_lastLen = 0;     // last LrcLib body length (diagnostics)
 
 // ---- pending-fetch target + backoff -------------------------------------------
 static bool     fetchPending = false;
@@ -24,11 +25,10 @@ static int      fetchTries = 0;
 static String   tgtArtist, tgtTrack, tgtAlbum, tgtId;
 static long     tgtDur = 0;
 
-// A single LrcLib response bigger than this is refused (never parsed) so the
-// internal heap can't spike near the health-guard threshold. The ArduinoJson
-// filter already discards everything but syncedLyrics as it streams, so this is
-// just a sanity cap — a /api/search hit for a popular track can be tens of KB.
-static const int LRC_MAX_BYTES = 120000;
+// A single LrcLib response bigger than this is refused (never read) so the
+// internal heap can't spike. A /api/get result is ~10KB; only a bloated
+// multi-result /api/search would exceed this (rare, since /api/get now hits).
+static const int LRC_MAX_BYTES = 45000;
 
 // ------------------------------------------------------------------ helpers
 static String urlenc(const String& s) {
@@ -54,16 +54,29 @@ static int lrcRequest(const String& url, bool isSearch,
   WiFiClientSecure client;
   client.setInsecure();
   HTTPClient http;
-  http.setConnectTimeout(LYRIC_FETCH_TIMEOUT_MS);
+  http.setConnectTimeout(6000);
   http.setTimeout(LYRIC_FETCH_TIMEOUT_MS);
   http.setReuse(false);
   if (!http.begin(client, url)) { g_lastHttp = -101; return -1; }
   http.addHeader("User-Agent", LYRIC_USER_AGENT);
   int code = http.GET();
   g_lastHttp = code;
-  Serial.printf("lrc GET -> %d (len %d) %s\n", code, http.getSize(), url.c_str());
-  if (code != 200) { http.end(); return code; }        // 404 etc. -> caller decides
+  if (code != 200) {
+    http.end();
+    Serial.printf("lrc GET -> %d %s\n", code, url.c_str());
+    return code;                                        // 404 etc. -> caller decides
+  }
   if (http.getSize() > LRC_MAX_BYTES) { http.end(); return 200; }  // too big -> "no lyrics"
+
+  // Read the whole body in one bulk transfer, THEN parse from memory. Streaming
+  // the parse straight off the TLS socket reads byte-by-byte, which is slow
+  // enough on this chip to blow the read timeout on a ~10KB body (that was the
+  // "http 200 but 0 lines" bug). getString() pulls it in large chunks instead.
+  String body = http.getString();
+  http.end();
+  g_lastLen = body.length();
+  Serial.printf("lrc GET -> 200 len=%d %s\n", (int)body.length(), url.c_str());
+  if (!body.length()) return -2;
 
   JsonDocument filter;
   if (isSearch) {
@@ -75,9 +88,8 @@ static int lrcRequest(const String& url, bool isSearch,
   }
   JsonDocument doc;
   DeserializationError e =
-      deserializeJson(doc, http.getStream(), DeserializationOption::Filter(filter));
-  http.end();
-  if (e) return -2;   // transient parse hiccup
+      deserializeJson(doc, body, DeserializationOption::Filter(filter));
+  if (e) { Serial.printf("lrc json err: %s\n", e.c_str()); return -2; }
 
   if (isSearch) {
     for (JsonObject o : doc.as<JsonArray>()) {
@@ -167,25 +179,43 @@ static bool doFetch() {
   String synced;
   bool instrumental = false;
 
-  // /api/get matches on exact metadata; album_name is dropped because single vs.
-  // album vs. deluxe/remaster mismatches 404 far too often. artist+track+duration
-  // hits reliably for a clean single result; /api/search is the fuzzy fallback.
-  String url = "https://lrclib.net/api/get?artist_name=" + urlenc(tgtArtist) +
-               "&track_name=" + urlenc(tgtTrack);
-  if (tgtDur > 0) url += "&duration=" + String(tgtDur / 1000);
+  bool neterr = false;
+  // album_name is deliberately omitted (single vs. album vs. deluxe mismatches
+  // 404 constantly). Artists to try: the full "A, B" Spotify string first, then
+  // just the lead artist -- collabs live under the lead artist on LrcLib, so
+  // "Drake" matches where "Drake, Future" would not.
+  String artists[2];
+  int nArtists = 1;
+  artists[0] = tgtArtist;
+  int comma = tgtArtist.indexOf(',');
+  if (comma > 0) { artists[1] = tgtArtist.substring(0, comma); nArtists = 2; }
 
-  int code = lrcRequest(url, false, synced, instrumental);
-  if (code < 0) return false;                      // network/parse -> retry
-  if (code == 404 || (code == 200 && !synced.length() && !instrumental)) {
-    // exact match missing (or found but no synced lyrics) -> fuzzy search
-    String surl = "https://lrclib.net/api/search?artist_name=" + urlenc(tgtArtist) +
-                  "&track_name=" + urlenc(tgtTrack);
-    int scode = lrcRequest(surl, true, synced, instrumental);
-    if (scode < 0 && code != 200) return false;    // network/parse -> retry
-    if (scode == 200) code = 200;
+  for (int a = 0; a < nArtists && !synced.length() && !instrumental; a++) {
+    String get = "https://lrclib.net/api/get?artist_name=" + urlenc(artists[a]) +
+                 "&track_name=" + urlenc(tgtTrack);
+    // 1) exact match INCLUDING duration -> the best-timed version when it lines up
+    if (tgtDur > 0 && !synced.length() && !instrumental) {
+      if (lrcRequest(get + "&duration=" + String(tgtDur / 1000), false,
+                     synced, instrumental) < 0) neterr = true;
+    }
+    // 2) loose match on just artist+track -> LrcLib's best version. Rescues songs
+    //    whose Spotify length differs from LrcLib's by more than the exact
+    //    endpoint tolerates (After Hours, singles/edits) -- a small ~10KB reply.
+    if (!synced.length() && !instrumental) {
+      if (lrcRequest(get, false, synced, instrumental) < 0) neterr = true;
+    }
   }
-  if (code != 200) state = LX_UNAVAILABLE;
-  else if (instrumental && !synced.length()) state = LX_INSTRUMENTAL;
+  // 3) fuzzy search, last resort. Auto-skips when the response is too big to hold
+  //    (popular queries are hundreds of KB), so it only helps the rare obscure
+  //    track with a tiny result set.
+  if (!synced.length() && !instrumental) {
+    if (lrcRequest("https://lrclib.net/api/search?artist_name=" + urlenc(tgtArtist) +
+                   "&track_name=" + urlenc(tgtTrack), true, synced, instrumental) < 0)
+      neterr = true;
+  }
+
+  if (!synced.length() && !instrumental && neterr) return false;   // transient -> retry
+  if (instrumental && !synced.length()) state = LX_INSTRUMENTAL;
   else if (!synced.length()) state = LX_UNAVAILABLE;
   else { parseLrc(synced); state = (lineCount > 0) ? LX_READY : LX_UNAVAILABLE; }
   Serial.printf("lyrics: '%s' / '%s' -> state=%d lines=%d\n",
@@ -239,6 +269,7 @@ void lyricsPoll() {
 int lyricsState() { return state; }
 int lyricsCount() { return lineCount; }
 int lyricsLastHttp() { return g_lastHttp; }
+int lyricsLastLen() { return g_lastLen; }
 
 int lyricsActiveIndex(uint32_t ms) {
   if (lineCount == 0 || ms < lines[0].time_ms) return -1;

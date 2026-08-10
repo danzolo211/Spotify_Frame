@@ -94,6 +94,7 @@ static void hStatus() {
   }
   jl["lines"] = lyricsCount();
   jl["http"] = lyricsLastHttp();
+  jl["len"] = lyricsLastLen();
 
   JsonObject js = doc["settings"].to<JsonObject>();
   js["verse_min"] = settings.verseMin;
