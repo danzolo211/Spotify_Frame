@@ -447,14 +447,20 @@ def tomb(c, x, base, s_, val=INK):
                    (x + s_ * 0.20, base - s_ * 0.78), (x + s_ * 0.30, base - s_ * 0.54),
                    (x + s_ * 0.30, base)], 14)
     fill(c, door, val)
-    # great round stone, rolled clear of the mouth to the right; a carved rim
-    # highlight gives it weight, a ground groove shows it was rolled aside
-    st_x, st_r = x + s_ * 1.36, s_ * 0.5
-    disc(c, st_x, base - st_r * 0.86, st_r, val)
-    c.d.arc([S * (st_x - st_r * 0.62), S * (base - st_r * 0.86 - st_r * 0.62),
-             S * (st_x + st_r * 0.2), S * (base - st_r * 0.86 + st_r * 0.2)],
-            150, 255, fill=paper, width=max(1, int(1.0 * S)))   # rim highlight
-    line(c, (x + s_ * 0.52, base), (st_x - st_r * 0.55, base), 1.2, val)
+    # the great round stone, rolled clear of the mouth to the right. Drawn as a
+    # PALE boulder (the same rock as the face) with a bold rim and a shaded
+    # underside, so it reads as a solid rounded stone rolled aside — never a
+    # second dark doorway blob beside the real one.
+    st_x, st_r = x + s_ * 1.44, s_ * 0.52
+    st_y = base - st_r * 0.9
+    c.d.ellipse([S * (st_x - st_r * 0.95), S * (base - 3),
+                 S * (st_x + st_r * 0.95), S * (base + 4)], fill=val)   # ground shadow
+    disc(c, st_x, st_y, st_r, paper)                                    # pale stone body
+    ring(c, st_x, st_y, st_r, 2.0, val)                                 # bold rim
+    c.d.arc([S * (st_x - st_r * 0.62), S * (st_y - st_r * 0.3),         # underside shading
+             S * (st_x + st_r * 0.92), S * (st_y + st_r * 0.92)],
+            30, 150, fill=val, width=max(1, int(1.7 * S)))
+    line(c, (x + s_ * 0.5, base), (st_x - st_r * 0.78, base), 1.2, val)  # the roll groove
 
 
 def lily(c, x, base, h, val=INK):
@@ -702,11 +708,17 @@ def sc_lighthouse(c):
     # inside) — kept clear of the text canvas on the left
     lx, ly = 322, 146
     ring(c, lx, ly, 5, 1.2)
-    sun_rays(c, lx, ly, 7, 12, n=8, w=0.7)
-    stroke(c, [(lx, ly), (300, 34)], 1.0)          # upper edge of the beam
-    stroke(c, [(lx, ly), (256, 74)], 1.0)          # lower edge (clear of the text)
-    for fx, fy in [(288, 48), (272, 60)]:          # two guide rays inside the cone
-        line(c, (lx, ly), (fx, fy), 0.6)
+    disc(c, lx, ly, 2)
+    # a clean searchlight fan: two firm edge rays with softer rays filling the
+    # cone, so it reads as a shaft of light — not two stray wires. Both edges and
+    # every inner ray stay right of x=250, well clear of the text canvas.
+    up, lo = (294, 36), (258, 84)
+    stroke(c, [(lx, ly), up], 1.3)
+    stroke(c, [(lx, ly), lo], 1.3)
+    for t in (0.22, 0.44, 0.66, 0.88):
+        fx = up[0] + (lo[0] - up[0]) * t
+        fy = up[1] + (lo[1] - up[1]) * t
+        line(c, (lx, ly), (fx, fy), 0.7)
     water_lines(c, 250, 300, x0=0, x1=246, gap=8, w=1.2, seed=7)
     birds(c, [(58, 236), (80, 229), (102, 236)], 7)  # gulls low over the water
     return (20, 28, 222, 158), []
@@ -766,8 +778,8 @@ def sc_empty_tomb(c):
     tomb(c, 108, 268, 58)
     # a small stand of Easter lilies rising at the foot of the doorway, spaced
     # so each trumpet bloom reads on its own
-    lily(c, 56, 273, 34)
-    lily(c, 84, 275, 25)
+    lily(c, 56, 274, 38)
+    lily(c, 86, 276, 28)
     for gx in range(30, 96, 11):       # a few grass blades among them
         line(c, (gx, 274), (gx + 2, 264), 1.0)
     # all tomb art (rays, rock) ends by x~159; the right sky is clear, so the
@@ -969,16 +981,21 @@ def fuji(c, fx, fbase, fh, snow=0.30, ridges=True, val=INK):
         t = i / N                              # 0 at the skirt, 1 at the summit
         left.append((fx - fh * 0.98 * (1 - t), fbase - fh * (t ** exp)))
     fill(c, left + [(2 * fx - x, y) for (x, y) in reversed(left)], val)
-    # snow crown: a clean cap ending in the classic jagged hem
-    ht = (1 - snow) ** (1 / exp)
-    hw = fh * 0.98 * (1 - ht)
-    hem_y = fbase - fh * (1 - snow)
-    cap = [(fx, peak)]
-    n = 7
-    for i in range(n + 1):
-        t = i / n
-        cap.append((fx - hw + 2 * hw * t, hem_y + (fh * 0.06 if i % 2 else 0)))
-    fill(c, cap, paper)
+    # snow: on a white sky a white cap would vanish, so the mountain stays a
+    # pointed black silhouette and the snow is carved as a white drift INSET from
+    # the slopes — a uniform black rim and a black peak-tip keep the summit
+    # reading, with a jagged lower hem for the classic snow line. Tracing the
+    # mountain's own curve (inset) means the rim never diverges into a hairline.
+    snow_t = (1 - snow) ** (1 / exp)               # slope param at the snow line
+    inset = fh * 0.06                              # black rim kept along each slope
+    tip_t = 0.92                                   # leave the very tip black
+    ts = [snow_t + (tip_t - snow_t) * i / 20 for i in range(21)]
+    snowL = [(fx - fh * 0.98 * (1 - t) + inset, fbase - fh * (t ** exp)) for t in ts]
+    snowR = [(2 * fx - x, y) for (x, y) in reversed(snowL)]
+    hemL, hemR = snowL[0], snowR[-1]
+    hem = [(hemL[0] + (hemR[0] - hemL[0]) * (i / 6),
+            hemL[1] - (fh * 0.05 if i % 2 else 0.0)) for i in range(7)]
+    fill(c, snowL + snowR + hem[::-1], paper)
     if ridges:
         for sgn in (-1, 1):
             line(c, (fx + sgn * fh * 0.04, peak + fh * snow * 1.1),
@@ -1014,11 +1031,17 @@ def crane(c, x, y, s_, val=INK):
 
 
 def cloud_band(c, cy, x0, x1, h=12):
-    """A flat white mist band drifting across the slopes (a scalloped lozenge);
-    call it clipped to the mountain so it never dangles into open sky."""
-    top = [(x, cy - h / 2 - 2.6 * math.sin(x / 34)) for x in range(x0, x1 + 1, 6)]
-    bot = [(x, cy + h / 2 + 2.6 * math.sin(x / 29 + 1.2))
-           for x in range(x0, x1 + 1, 6)]
+    """A drifting mist lozenge: it tapers to a soft point at both ends (an
+    envelope over the ripple) so it reads as a cloud floating on the slope — not a
+    band slicing the mountain in two. Keep it well inside the silhouette."""
+    span = max(1, x1 - x0)
+    top, bot = [], []
+    for x in range(x0, x1 + 1, 4):
+        t = (x - x0) / span
+        env = math.sin(math.pi * t) ** 0.7          # 0 at both ends -> pointed cloud
+        hh = (h / 2) * env
+        top.append((x, cy - hh - 1.4 * env * math.sin(x / 30)))
+        bot.append((x, cy + hh + 1.4 * env * math.sin(x / 26 + 1.0)))
     fill(c, top + bot[::-1], PAPER)
 
 
@@ -1066,12 +1089,12 @@ def sc_great_wave(c):
 
 
 def sc_fuji_serene(c):
-    """South-wind Fuji: one bold peak with a snow crown and low drifting clouds
-    — a generous clean sky holds the verse."""
+    """South-wind Fuji: one clean, iconic snow-crowned peak over a soft distant
+    foothill — a generous clear sky holds the verse. (White mist over a black
+    mountain only ever reads as snow ledges, so the peak is left uncluttered.)"""
+    hill_outline(c, 256, 12, 1.2, seed_extra=5)   # a distant foothill for depth
     fuji(c, 200, 270, 120, snow=0.30)
-    for (cy, x0, x1) in [(224, 150, 250), (248, 122, 278)]:
-        cloud_band(c, cy, x0, x1)
-    line(c, (0, 288), (W, 286), 1.0)          # a quiet groundline
+    line(c, (0, 288), (W, 286), 1.0)              # a quiet groundline
     return (30, 20, 340, 122), ["water"]
 
 
@@ -1119,6 +1142,28 @@ SCENES = [
 NIGHT_SCENES = {"starry-night", "moonlit-hills", "crane-moon"}
 
 
+def _despeckle(img, night):
+    """Remove lone threshold specks that read as noise: on day scenes, isolated
+    BLACK pixels sitting on clean paper (all 8 neighbours white). Night scenes are
+    left untouched — their lone white pixels are intended stars. Deterministic and
+    purely subtractive: it can only erase a floating dot, never add or move ink."""
+    if night:
+        return img
+    px = img.load()
+    w, h = img.size
+    flip = []
+    for y in range(1, h - 1):
+        for x in range(1, w - 1):
+            if px[x, y] != 0:
+                continue
+            if all(px[x + dx, y + dy] == 255
+                   for dy in (-1, 0, 1) for dx in (-1, 0, 1) if dx or dy):
+                flip.append((x, y))
+    for (x, y) in flip:
+        px[x, y] = 255
+    return img
+
+
 def export(idx, name, fn):
     c = C(name, bg=INK if name in NIGHT_SCENES else PAPER)
     zone, tags = fn(c)
@@ -1126,6 +1171,7 @@ def export(idx, name, fn):
     tags = [t for t in tags if t != "wink"]
     small = c.img.resize((W, H), Image.BILINEAR)
     bw = small.convert("1", dither=Image.Dither.NONE)   # threshold, no dither
+    bw = _despeckle(bw, name in NIGHT_SCENES)           # kill lone ink grain
     raw = bw.tobytes()       # PIL: bit=1 -> white; we want bit=1 -> black
     data = bytes(b ^ 0xFF for b in raw)
     assert len(data) == W * H // 8, f"{name}: {len(data)} bytes"
