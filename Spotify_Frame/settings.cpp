@@ -13,6 +13,7 @@ void Settings::load() {
   progressS = p.getUShort("p_s", DEF_PROGRESS_S);
   quietStart = p.getUChar("q_s", DEF_QUIET_START);
   quietEnd = p.getUChar("q_e", DEF_QUIET_END);
+  lyricsOn = p.getBool("lyr_on", true);
   herName = p.getString("name", HER_NAME);
   p.end();
 }
@@ -25,6 +26,7 @@ void Settings::save() {
   p.putUShort("p_s", progressS);
   p.putUChar("q_s", quietStart);
   p.putUChar("q_e", quietEnd);
+  p.putBool("lyr_on", lyricsOn);
   p.putString("name", herName);
   p.end();
 }

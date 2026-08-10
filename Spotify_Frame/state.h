@@ -8,6 +8,7 @@ struct Settings {
   uint16_t idleMin;
   uint16_t progressS;
   uint8_t quietStart, quietEnd;
+  bool lyricsOn;
   String herName;
   void load();
   void save();
@@ -41,7 +42,7 @@ struct AppState {
   bool quiet = false;
   bool specialShownToday = false;
   // last known track (for the app's Now screen)
-  String trackTitle, trackArtist, trackId;
+  String trackTitle, trackArtist, trackAlbum, trackId;
   bool trackPlaying = false;
   long trackProgress = 0, trackDuration = 1;
 };

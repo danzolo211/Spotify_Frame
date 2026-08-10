@@ -37,16 +37,46 @@ static String b64(const String& in) {
   return r;
 }
 
-void spotifyBegin() {
-  gray = (uint8_t*)bigAlloc(ART_PX * ART_PX);
-  artBits = (uint8_t*)bigAlloc(ART_PX * ART_PX / 8);
-  if (artBits) memset(artBits, 0, ART_PX * ART_PX / 8);
+static void loadCredsFromNvs() {
   Preferences p;
   p.begin("gf", true);
   clientId = p.getString("sp_id", SP_CLIENT_ID);
   clientSecret = p.getString("sp_secret", SP_CLIENT_SECRET);
   refreshToken = p.getString("sp_refresh", SP_REFRESH_TOKEN);
   p.end();
+}
+
+void spotifyBegin() {
+  gray = (uint8_t*)bigAlloc(ART_PX * ART_PX);
+  artBits = (uint8_t*)bigAlloc(ART_PX * ART_PX / 8);
+  if (artBits) memset(artBits, 0, ART_PX * ART_PX / 8);
+  loadCredsFromNvs();
+}
+
+// Test credentials without persisting them. NVS (her saved account) is never
+// written, so it cannot be lost; the frame simply runs on these creds in RAM.
+// A reboot — or spotifyRevertToSaved() — brings her account back.
+void spotifySetCredsTemp(const String& id, const String& secret,
+                         const String& refresh) {
+  clientId = id;
+  clientSecret = secret;
+  refreshToken = refresh;
+  accessToken = "";
+  tokenExpiresAt = 0;
+  cooldownUntil = 0;
+  linkState = SP_LINK_UNKNOWN;
+  if (spotifyConfigured()) refreshAccessToken();   // verify now, for an instant answer
+}
+
+// Undo a temporary override by reloading the saved (NVS) account. A power cycle
+// does the same thing on its own, because the override only ever lived in RAM.
+void spotifyRevertToSaved() {
+  loadCredsFromNvs();
+  accessToken = "";
+  tokenExpiresAt = 0;
+  cooldownUntil = 0;
+  linkState = SP_LINK_UNKNOWN;
+  if (spotifyConfigured()) refreshAccessToken();
 }
 
 bool spotifyConfigured() {
@@ -154,6 +184,7 @@ int spotifyPoll(Track& t) {
   filter["item"]["name"] = true;
   filter["item"]["duration_ms"] = true;
   filter["item"]["artists"][0]["name"] = true;
+  filter["item"]["album"]["name"] = true;
   filter["item"]["album"]["images"][0]["url"] = true;
   filter["item"]["album"]["images"][0]["width"] = true;
 
@@ -169,6 +200,7 @@ int spotifyPoll(Track& t) {
   t.progress = doc["progress_ms"].as<long>();
   t.duration = doc["item"]["duration_ms"].as<long>();
   t.title = doc["item"]["name"].as<String>();
+  t.album = doc["item"]["album"]["name"].as<String>();
   t.artist = "";
   for (JsonObject a : doc["item"]["artists"].as<JsonArray>()) {
     if (t.artist.length()) t.artist += ", ";

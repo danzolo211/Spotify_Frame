@@ -188,15 +188,48 @@ static void letterSpaced(const GFXfont* f, const String& s, int x, int baseline,
   }
 }
 
+// ---- live lyric line -------------------------------------------------------
+static String g_lyric = "";
+static bool   g_lyricInstrumental = false;
+
+void renderSetLyric(const String& line, bool instrumental) {
+  g_lyric = line;
+  g_lyricInstrumental = instrumental;
+}
+
+// a small centered music note drawn with primitives (our Latin-1 fonts have no
+// U+266A), shown when a track is instrumental
+static void lyricNote(int cx, int cy) {
+  canvas.fillCircle(cx - 4, cy + 5, 4, INK);      // note head
+  canvas.fillRect(cx - 1, cy - 7, 2, 13, INK);    // stem
+  canvas.fillRect(cx - 1, cy - 7, 7, 3, INK);     // flag
+}
+
+// Repaint ONLY the lyric band into the canvas: clear it to paper, then draw the
+// current line centered (single line, ellipsized so it can never spill sideways).
+// The band is proven disjoint from every other Now-Playing element (see the
+// layout constants in config.h and the coordinate proof in the plan), so a
+// partial refresh of it via epdPushLyric can never touch already-printed pixels.
+void renderLyricBand() {
+  canvas.fillRect(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H, PAPER);
+  if (!settings.lyricsOn) return;                 // lyrics off -> band stays blank
+  if (g_lyricInstrumental) { lyricNote(SCREEN_W / 2, LYRIC_BAND_Y + 10); return; }
+  String s = utf8ToLatin1(g_lyric);
+  s.trim();
+  if (!s.length()) return;                          // blank band (interlude / no line yet)
+  s = fitEllipsis(&SansMed, s, LYRIC_BAND_W - 32);
+  drawCentered(&SansMed, s, SCREEN_W / 2, LYRIC_BAND_Y + 19, INK);
+}
+
 void renderSpotify(const uint8_t* artBits, bool artValid) {
   canvas.fillScreen(PAPER);
   // header
-  letterSpaced(&SansSmall, "NOW PLAYING", 18, 24, 3, INK);
-  heart(374, 18, 7, INK);
-  canvas.drawFastHLine(18, 34, 364, INK);
+  letterSpaced(&SansSmall, "NOW PLAYING", 18, 22, 3, INK);
+  heart(374, 16, 7, INK);
+  canvas.drawFastHLine(18, 32, 364, INK);
 
   // album art
-  const int ART = 152, AX = 18, AY = 48;
+  const int ART = 152, AX = 18, AY = 44;
   canvas.drawRect(AX - 2, AY - 2, ART + 4, ART + 4, INK);
   if (artValid && artBits)
     canvas.drawBitmap(AX, AY, artBits, ART, ART, INK);
@@ -219,7 +252,7 @@ void renderSpotify(const uint8_t* artBits, bool artValid) {
   else for (int i = 0; i < n; i++) tl[i] = fitEllipsis(&SansBold, tl[i], TW);
   canvas.setFont(&SansBold);
   canvas.setTextColor(INK);
-  int ty = 86;
+  int ty = 84;
   for (int i = 0; i < n; i++) {
     canvas.setCursor(TX, ty);
     canvas.print(tl[i]);
@@ -230,7 +263,7 @@ void renderSpotify(const uint8_t* artBits, bool artValid) {
   canvas.print(fitEllipsis(&SansMed, artist, TW));
 
   // transport row
-  int cy = 232, cxp = 200;
+  int cy = 244, cxp = 200;
   // prev / next (decorative, mirrors her phone)
   canvas.fillTriangle(160, cy, 172, cy - 8, 172, cy + 8, INK);
   canvas.fillRect(156, cy - 8, 3, 16, INK);
@@ -246,7 +279,7 @@ void renderSpotify(const uint8_t* artBits, bool artValid) {
   }
 
   // progress bar + times
-  const int barL = 18, barR = 382, barY = 262, barH = 12;
+  const int barL = 18, barR = 382, barY = 263, barH = 12;
   float frac = app.trackDuration > 0
                ? (float)app.trackProgress / app.trackDuration : 0;
   frac = constrain(frac, 0.0f, 1.0f);
@@ -260,6 +293,9 @@ void renderSpotify(const uint8_t* artBits, bool artValid) {
   String dur = mmss(app.trackDuration);
   canvas.setCursor(barR - textWidth(&SansSmall, dur), barY + barH + 16);
   canvas.print(dur);
+
+  // live lyric line (drawn last; disjoint band, so order is immaterial)
+  renderLyricBand();
 }
 
 // ---------------------------------------------------------------- note

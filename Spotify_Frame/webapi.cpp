@@ -3,6 +3,7 @@
 #include "verses.h"
 #include "bgs.h"
 #include "spotify.h"
+#include "lyrics.h"
 #include "epaper.h"
 #include "netmgr.h"
 #include "config.h"
@@ -72,6 +73,7 @@ static void hStatus() {
   jt["id"] = app.trackId;
   jt["title"] = app.trackTitle;
   jt["artist"] = app.trackArtist;
+  jt["album"] = app.trackAlbum;
   jt["playing"] = app.trackPlaying;
   jt["progress"] = app.trackProgress;
   jt["duration"] = app.trackDuration;
@@ -81,12 +83,25 @@ static void hStatus() {
   jn["text"] = app.note.text;
   jn["from"] = app.note.from;
 
+  JsonObject jl = doc["lyrics"].to<JsonObject>();
+  jl["on"] = settings.lyricsOn;
+  switch (lyricsState()) {
+    case LX_READY:        jl["state"] = "ready"; break;
+    case LX_LOADING:      jl["state"] = "loading"; break;
+    case LX_INSTRUMENTAL: jl["state"] = "instrumental"; break;
+    case LX_UNAVAILABLE:  jl["state"] = "unavailable"; break;
+    default:              jl["state"] = "none"; break;
+  }
+  jl["lines"] = lyricsCount();
+  jl["http"] = lyricsLastHttp();
+
   JsonObject js = doc["settings"].to<JsonObject>();
   js["verse_min"] = settings.verseMin;
   js["idle_min"] = settings.idleMin;
   js["progress_s"] = settings.progressS;
   js["quiet_start"] = settings.quietStart;
   js["quiet_end"] = settings.quietEnd;
+  js["lyrics_on"] = settings.lyricsOn;
   js["her_name"] = settings.herName;
 
   JsonObject jd = doc["device"].to<JsonObject>();
@@ -286,6 +301,7 @@ static void hSettingsGet() {
   doc["progress_s"] = settings.progressS;
   doc["quiet_start"] = settings.quietStart;
   doc["quiet_end"] = settings.quietEnd;
+  doc["lyrics_on"] = settings.lyricsOn;
   doc["her_name"] = settings.herName;
   sendJson(doc);
 }
@@ -303,6 +319,8 @@ static void hSettingsPost() {
     settings.quietStart = constrain(doc["quiet_start"].as<int>(), 0, 23);
   if (!doc["quiet_end"].isNull())
     settings.quietEnd = constrain(doc["quiet_end"].as<int>(), 0, 23);
+  if (!doc["lyrics_on"].isNull())
+    settings.lyricsOn = doc["lyrics_on"].as<bool>();
   if (!doc["her_name"].isNull())
     settings.herName = doc["her_name"].as<String>();
   settings.save();
@@ -313,6 +331,25 @@ static void hSpotifyCreds() {
   JsonDocument doc;
   if (!readBody(doc)) { server.send(400, "text/plain", "bad body"); return; }
   spotifySetCreds(doc["id"] | "", doc["secret"] | "", doc["refresh"] | "");
+  sendOk();
+}
+
+// Temporarily run the frame on a DIFFERENT Spotify account for testing, WITHOUT
+// saving it — the account already in flash is never overwritten. Reports whether
+// the creds linked. A reboot, or POST /api/spotify/revert, restores the saved one.
+static void hSpotifyTestLive() {
+  JsonDocument doc;
+  if (!readBody(doc)) { server.send(400, "text/plain", "bad body"); return; }
+  spotifySetCredsTemp(doc["id"] | "", doc["secret"] | "", doc["refresh"] | "");
+  JsonDocument out;
+  out["link"] = spotifyLinkState() == SP_LINK_OK ? "ok"
+                : spotifyLinkState() == SP_LINK_FAILED ? "failed" : "unknown";
+  out["temporary"] = true;
+  sendJson(out);
+}
+
+static void hSpotifyRevert() {
+  spotifyRevertToSaved();
   sendOk();
 }
 
@@ -357,6 +394,8 @@ void webBegin() {
   server.on("/api/settings", HTTP_GET, hSettingsGet);
   server.on("/api/settings", HTTP_POST, hSettingsPost);
   server.on("/api/spotify", HTTP_POST, hSpotifyCreds);
+  server.on("/api/spotify/test", HTTP_POST, hSpotifyTestLive);   // RAM-only, non-destructive
+  server.on("/api/spotify/revert", HTTP_POST, hSpotifyRevert);
   server.on("/api/refresh", HTTP_POST, hRefresh);
   server.on("/api/wifi/forget", HTTP_POST, hWifiForget);
   server.on("/", HTTP_GET, hIndex);

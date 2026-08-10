@@ -33,6 +33,7 @@
 #include "verses.h"
 #include "bgs.h"
 #include "spotify.h"
+#include "lyrics.h"
 #include "netmgr.h"
 #include "webapi.h"
 #include "remote_notes.h"
@@ -46,6 +47,12 @@ static Track pendingInfo;
 static uint32_t lastBarPush = 0;
 static bool artValid = false;
 static bool prevPlaying = false;
+// Live-lyric display tracker. lyrShownIdx: -3 = band blank, -4 = instrumental note,
+// >=-1 = the line index currently on the glass. (Kept at file scope so commitTrack
+// can reset it in lock-step with lyricsOnNewTrack.)
+static int lyrShownIdx = -3;
+static int lyrShownState = LX_NONE;
+static uint32_t lastLyricPush = 0;
 static uint32_t specialShownAt = 0;
 static uint32_t lastWifiCheck = 0;
 static bool assetsOk = false;
@@ -166,12 +173,14 @@ static void commitTrack(const Track& t) {
   app.trackId = t.id;
   app.trackTitle = t.title;
   app.trackArtist = t.artist;
+  app.trackAlbum = t.album;
   app.trackPlaying = t.playing;
   app.trackProgress = t.progress;
   app.trackDuration = t.duration;
   progressAnchorMs = t.progress;
   progressAnchorAt = millis();
   artValid = t.artUrl.length() ? spotifyFetchArt(t.artUrl) : false;
+  renderSetLyric("", false);          // wipe the previous song's line before drawing
   drawSpotify();
   // A new song is a clean slate: always a full refresh so the previous title,
   // artist and art are wiped instead of ghosting under the new ones.
@@ -179,6 +188,13 @@ static void commitTrack(const Track& t) {
   app.mode = MODE_SPOTIFY;
   lastBarPush = millis();
   prevPlaying = t.playing;
+  // Kick off the off-loop lyric fetch and align the on-screen tracker with the
+  // just-set LOADING state (band is blank right now) so the first line renders
+  // promptly and we never blink a blank-over-blank band.
+  lyricsOnNewTrack(t.title, t.artist, t.album, t.duration, t.id);
+  lyrShownState = LX_LOADING;
+  lyrShownIdx = -3;
+  lastLyricPush = millis();
 }
 
 static void spotifyTick() {
@@ -199,6 +215,7 @@ static void spotifyTick() {
     app.trackId = t.id;
     app.trackTitle = t.title;
     app.trackArtist = t.artist;
+    app.trackAlbum = t.album;
     if (t.playing) {
       app.lastMusicActive = millis();
       active = true;
@@ -217,11 +234,17 @@ static void spotifyTick() {
         epdPush(PUSH_FULL);
         lastBarPush = millis();
       } else if (t.playing && settings.progressS > 0) {
-        // Full refresh flashes, so floor the cadence at 20s to keep it gentle.
         uint16_t everyS = settings.progressS < 20 ? 20 : settings.progressS;
         if (millis() - lastBarPush >= everyS * 1000UL) {
           drawSpotify();
-          epdPush(PUSH_FULL);
+          // With lyrics on, the frequent timer tick must not flash the whole
+          // screen: repaint just the bottom bar+times strip through white (crisp
+          // digits, a blink confined to that strip). Lyrics off keeps the original
+          // full-refresh timer behaviour exactly.
+          if (settings.lyricsOn)
+            epdPushLyric(NP_BAR_STRIP_X, NP_BAR_STRIP_Y, NP_BAR_STRIP_W, NP_BAR_STRIP_H);
+          else
+            epdPush(PUSH_FULL);
           lastBarPush = millis();
         }
       }
@@ -266,6 +289,62 @@ static void spotifyTick() {
     interval = elapsed < TRACK_STABLE_MS ? (TRACK_STABLE_MS - elapsed + 50) : 50;
   }
   nextPollAt = millis() + interval;
+}
+
+// ------------------------------------------------------------ lyrics
+// Advances the on-screen lyric line in time with the song. First runs any due
+// LrcLib fetch (off the commit's refresh path). Then, while a song with synced
+// lyrics is on the panel, repaints the lyric band whenever the active line
+// changes — a crisp white->content clean confined to that band, so there is no
+// full-screen flash. The active line is recomputed from liveProgressMs() each
+// tick, so pause freezes it, a seek jumps straight to the right line, and if
+// clean-refreshes fall behind fast lines it always converges on the current one.
+static void lyricsTick() {
+  if (!settings.lyricsOn) return;
+  lyricsPoll();   // performs a due fetch (blocks <=3s per request, once per song)
+
+  if (app.mode != MODE_SPOTIFY) { lyrShownState = LX_NONE; lyrShownIdx = -3; return; }
+
+  int st = lyricsState();
+
+  // Fetch result just changed -> settle the band once for the new state.
+  if (st != lyrShownState) {
+    int prev = lyrShownState;
+    lyrShownState = st;
+    if (st == LX_INSTRUMENTAL) {
+      renderSetLyric("", true);
+      renderLyricBand();
+      epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
+      lastLyricPush = millis();
+      lyrShownIdx = -4;                       // note shown
+      return;
+    }
+    if (st != LX_READY) {                     // LOADING / UNAVAILABLE / NONE -> blank
+      if (lyrShownIdx >= 0 || prev == LX_INSTRUMENTAL) {   // only if it wasn't already blank
+        renderSetLyric("", false);
+        renderLyricBand();
+        epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
+        lastLyricPush = millis();
+      }
+      lyrShownIdx = -3;
+      return;
+    }
+    lyrShownIdx = -3;                         // READY: force the current line to draw below
+  }
+
+  if (st != LX_READY || !app.trackPlaying) return;
+
+  long pos = liveProgressMs() + LYRIC_LEAD_MS;
+  if (pos < 0) pos = 0;
+  int idx = lyricsActiveIndex((uint32_t)pos);
+  int want = (idx < 0) ? -3 : idx;           // before the first line -> blank sentinel
+  if (want != lyrShownIdx && (millis() - lastLyricPush) >= LYRIC_MIN_GAP_MS) {
+    lyrShownIdx = want;
+    renderSetLyric(idx >= 0 ? String(lyricsText(idx)) : String(""), false);
+    renderLyricBand();
+    epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
+    lastLyricPush = millis();
+  }
 }
 
 // ------------------------------------------------------------ ticks
@@ -483,6 +562,7 @@ void setup() {
   if (!netConnect()) netPortal();   // portal blocks + restarts
   netTimeMdns();
   spotifyBegin();
+  lyricsBegin();
   webBegin();
   remoteNotesBegin();
 
@@ -515,6 +595,7 @@ void loop() {
   processPending();
   remoteNotesTick();
   spotifyTick();
+  lyricsTick();
   verseTick();
   noteTick();
   specialTick();

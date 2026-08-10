@@ -53,6 +53,33 @@ static const SpecialDate SPECIAL_DATES[] = {
 #define POLL_IDLE_MS     5000    // how fast music is noticed when nothing's on
                                  // (kept snappy so Now Playing appears promptly)
 
+// ---------- live synced lyrics (LrcLib) ----------
+// A single current line, centered under the album art, advanced in time with the
+// song. Each line change repaints ONLY the lyric strip through white (a clean
+// white->text transition = full-refresh crispness, no ghosting) — a tiny local
+// blink confined to the strip, never a full-screen flash. See lyrics.cpp and
+// epdPushLyric() in epaper.cpp for why the clean path is mandatory on this panel.
+//
+// Lyric band + bottom timer strip: partial-refresh windows, each proven disjoint
+// from every other Now-Playing element by >=2px (see render.cpp renderSpotify).
+#define LYRIC_BAND_X    0
+#define LYRIC_BAND_Y    199
+#define LYRIC_BAND_W    400
+#define LYRIC_BAND_H    26
+#define NP_BAR_STRIP_X  0
+#define NP_BAR_STRIP_Y  262
+#define NP_BAR_STRIP_W  400
+#define NP_BAR_STRIP_H  34
+
+#define LYRIC_MIN_GAP_MS        500      // min ms between lyric repaints (non-blocking skip)
+#define LYRIC_FETCH_TIMEOUT_MS  3000     // strict per-request cap (connect + read)
+#define LYRIC_MAX_LINES         200      // hard bound on stored lines
+#define LYRIC_BUF_BYTES         8192     // PSRAM text buffer for one song's lyrics
+#define LYRIC_LEAD_MS           0        // tunable sync offset (negative = show earlier)
+#define LYRIC_MAX_TRIES         3        // fetch attempts before giving up (backoff)
+#define LYRIC_RETRY_MS          10000    // wait between failed fetch attempts
+#define LYRIC_USER_AGENT        "GraceFrame/1.0 (https://github.com/graceframe)"
+
 // ---------- network ----------
 #define MDNS_NAME        "graceframe"   // app lives at http://graceframe.local
 #define AP_NAME          "GraceFrame-Setup"

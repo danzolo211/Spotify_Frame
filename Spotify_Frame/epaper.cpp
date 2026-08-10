@@ -88,16 +88,20 @@ void epdPush(PushMode mode, int x, int y, int w, int h) {
   refreshes++;
 }
 
-void epdPushRegionClean(int x, int y, int w, int h) {
-  uint32_t since = millis() - lastPushMs;
-  if (lastPushMs != 0 && since < MIN_REFRESH_GAP_MS) {
-    delay(MIN_REFRESH_GAP_MS - since);
-  }
+// The two-phase "clean" repaint of a small strip, WITHOUT the rate-limit wait and
+// WITHOUT touching the full-refresh budget. Routing a changing-glyph region through
+// white (white->content) is the only way to keep text razor-crisp on this panel —
+// a plain differential partial softens/ghosts changing glyphs (the very bug fixed
+// in epdPush's previous-RAM handling above). The visible cost is a blink confined
+// to THIS strip; nothing outside [x0..x0+w0) x [y..y+h) is ever driven, so it can
+// never touch already-printed pixels elsewhere. Callers gate cadence themselves.
+static void regionCleanCore(int x, int y, int w, int h) {
   // byte-align x/w for the panel's partial RAM window
   int x0 = x & ~7;
   int x1 = (x + w + 7) & ~7;
   int w0 = x1 - x0;
-  if (w0 > SCREEN_W) w0 = SCREEN_W;
+  if (x0 < 0) x0 = 0;
+  if (w0 > SCREEN_W - x0) w0 = SCREEN_W - x0;
   if (h > 100) h = 100;   // this helper is for small strips only
 
   static uint8_t white[(SCREEN_W / 8) * 100];   // all-white scratch (bit1 = white)
@@ -121,9 +125,26 @@ void epdPushRegionClean(int x, int y, int w, int h) {
                                         x0, y, w0, h, true);
 
   display.epd2.powerOff();
-  partials += 2;
   lastPushMs = millis();
   refreshes += 2;
+}
+
+void epdPushRegionClean(int x, int y, int w, int h) {
+  uint32_t since = millis() - lastPushMs;
+  if (lastPushMs != 0 && since < MIN_REFRESH_GAP_MS) {
+    delay(MIN_REFRESH_GAP_MS - since);
+  }
+  regionCleanCore(x, y, w, h);
+  partials += 2;   // counts toward the deep-clean budget, like other pushes
+}
+
+// Lyric / Now-Playing-timer strip repaint. Same crisp white->content clean, but it
+// deliberately does NOT wait MIN_REFRESH_GAP_MS (the caller spaces lines with a
+// non-blocking LYRIC_MIN_GAP_MS skip) and does NOT count toward PARTIALS_BEFORE_FULL
+// — so a song never triggers a full-screen flash. Each clean is self-crisping, so
+// no periodic full refresh is needed; the next song's commit does a full anyway.
+void epdPushLyric(int x, int y, int w, int h) {
+  regionCleanCore(x, y, w, h);
 }
 
 uint32_t epdRefreshCount() { return refreshes; }

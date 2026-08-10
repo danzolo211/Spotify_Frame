@@ -20,4 +20,10 @@ void epdPush(PushMode mode, int x = 0, int y = 0, int w = SCREEN_W, int h = SCRE
 // (the progress digits / play-pause icon). Use for small regions whose content
 // changes shape; a plain PUSH_REGION is fine for the monotonic progress bar.
 void epdPushRegionClean(int x, int y, int w, int h);
+
+// Crisp white->content clean of a small strip for the live-lyric line and the
+// Now-Playing timer/bar: no rate-limit wait and no full-refresh budget, so lyric
+// playback never causes a full-screen flash. Cadence is gated by the caller. Only
+// the given window is driven, so it can never disturb already-printed content.
+void epdPushLyric(int x, int y, int w, int h);
 uint32_t epdRefreshCount();
