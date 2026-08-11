@@ -63,10 +63,11 @@ the device (bistable). QED.
 
 ## Appendix: why live lyric and timer strips do not leave old pixels
 
-The live lyric band and Now Playing timer strip use the same two-phase update:
+The live Now Playing regions use a two-phase update:
 
 ```
-1. set every pixel in rectangle R to white
+1. set every volatile pixel in clean subset K to white
+   and preserve every other pixel in rectangle R from the canvas
 2. refresh only R
 3. draw the new content into R
 4. refresh only R again
@@ -74,12 +75,17 @@ The live lyric band and Now Playing timer strip use the same two-phase update:
 ```
 
 Let `G_t(x,y)` be the visible glass state after update `t`, and `C_t(x,y)` be
-the canvas state for the next content. For every pixel inside the strip
-rectangle `R`, phase 1 forces `G_t(x,y)=white`. Phase 2 then drives the pixel
+the canvas state for the next content. For every volatile pixel inside the
+clean subset `K`, phase 1 forces `G_t(x,y)=white`. Phase 2 then drives the pixel
 from white to exactly `C_t(x,y)`. Therefore the final state is
-`G_t(x,y)=C_t(x,y)` for all `(x,y) in R`, independent of what was displayed at
-`t-1`. Old digits cannot remain because the old state is not part of the second
-transition.
+`G_t(x,y)=C_t(x,y)` for all `(x,y) in K`, independent of what was displayed at
+`t-1`. Old lyric glyphs and old digits cannot remain because the old state is
+not part of the second transition.
+
+For every non-volatile pixel in `R \ K`, phase 1 writes the same canvas pixel
+that phase 2 writes. On Now Playing, that set contains the play/pause and skip
+icons, and those pixels are not mutated by `renderLyricBand()`. Thus those
+controls are not intentionally blanked during a lyric change.
 
 For every pixel outside `R`, the e-paper controller is asked to refresh only
 `R`, so `G_t(x,y)=G_{t-1}(x,y)`. The previous-RAM copy is also restricted to
@@ -91,22 +97,28 @@ previous_R_t == G_t on R
 previous_outside_R_t == previous_outside_R_(t-1)
 ```
 
-The rectangles are disjoint in the firmware constants:
+Timer-only updates use the smallest safe bottom rectangle, with `R = K = R_bar`:
 
 ```
-Lyric band:       y = 199..234
-Transport icons:  y = 235..263
-Timer strip:      y = 266..299
+Timer strip R_bar: x = 0..399, y = 266..299
+Bar border:        x = 18..381, y = 267..278
+Bar fill:          x = 20..379, y = 269..276
+Time text:         baseline y = 295; SansSmall digits occupy y = 286..294
 ```
 
-The bottom strip contains the full timer/bar draw area:
+Lyric updates use one larger live rectangle with a masked clean subset:
 
 ```
-Timer strip: x = 0..399, y = 266..299
-Bar border:  x = 18..381, y = 267..278
-Bar fill:    x = 20..379, y = 269..276
-Time text:   baseline y = 295; SansSmall digits occupy y = 286..294
+Live strip R_live: x = 0..399, y = 199..299
+Clean subset K:    lyric band y = 199..234 union timer strip y = 266..299
+Preserved controls:y = 235..263
 ```
 
-So the clean-refresh rectangle strictly covers every pixel that can change in
-the progress bar and timestamp, and it excludes the lyric band and controls.
+`R_bar` is a subset of `K`, and `K` is a subset of `R_live`. Therefore every
+lyric update repaints every timer/progress pixel in phase 2, whether or not the
+underlying panel waveform affects rows below the lyric text during phase 1.
+Formally, for every pixel `p in R_bar`, the lyric update ends with
+`G_t(p)=C_t(p)`. The progress bar and timestamp cannot be left white or stale
+after a lyric change because their final write is part of the same transaction.
+The timestamp value itself is not advanced by the lyric path; it changes only
+when the configured progress cadence runs the timer-strip update.

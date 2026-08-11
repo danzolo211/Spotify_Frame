@@ -276,11 +276,11 @@ static void lyricNote(int cx, int cy) {
   canvas.fillRect(cx - 1, cy - 7, 7, 3, INK);     // flag
 }
 
-// Repaint ONLY the lyric band into the canvas: clear it to paper, then draw the
+// Repaint ONLY the lyric band in the canvas: clear it to paper, then draw the
 // current line centered (single line, ellipsized so it can never spill sideways).
-// The band is proven disjoint from every other Now-Playing element (see the
-// layout constants in config.h and the coordinate proof in the plan), so a
-// partial refresh of it via epdPushLyric can never touch already-printed pixels.
+// The panel push for lyric changes covers the lower live Now-Playing region,
+// carrying the timer/progress strip with it, but this renderer keeps the canvas
+// mutation isolated to lyric pixels.
 void renderLyricBand() {
   canvas.fillRect(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H, PAPER);
   if (!settings.lyricsOn) return;                 // lyrics off -> band stays blank

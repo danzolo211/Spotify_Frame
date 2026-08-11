@@ -200,6 +200,13 @@ static void drawSpotifyProgressStrip() {
   renderSpotifyProgressStrip();
 }
 
+static void pushSpotifyLyricStrip() {
+  renderLyricBand();
+  epdPushNowPlayingLive();
+  uint32_t now = millis();
+  lastCleanStripPush = lastLyricPush = now;
+}
+
 static void commitTrack(const Track& t) {
   committedTrack = t.id;
   app.trackId = t.id;
@@ -270,7 +277,9 @@ static void spotifyTick() {
       } else if (t.playing && settings.progressS > 0) {
         uint16_t everyS = settings.progressS < MIN_PROGRESS_S
                             ? MIN_PROGRESS_S : settings.progressS;
-        if (millis() - lastBarPush >= everyS * 1000UL) {
+        bool stripReady = (lastCleanStripPush == 0 ||
+                           millis() - lastCleanStripPush >= LYRIC_MIN_GAP_MS);
+        if (millis() - lastBarPush >= everyS * 1000UL && stripReady) {
           drawSpotifyProgressStrip();
           epdPushLyric(NP_BAR_STRIP_X, NP_BAR_STRIP_Y, NP_BAR_STRIP_W, NP_BAR_STRIP_H);
           lastCleanStripPush = lastBarPush = millis();
@@ -334,9 +343,7 @@ static void lyricsTick() {
     if (app.mode == MODE_SPOTIFY &&
         (lyrShownIdx >= 0 || lyrShownState == LX_INSTRUMENTAL) && stripReady) {
       renderSetLyric("", false);
-      renderLyricBand();
-      epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
-      lastCleanStripPush = lastLyricPush = millis();
+      pushSpotifyLyricStrip();
       lyrShownIdx = -3;
       lyrShownState = LX_NONE;
     }
@@ -356,9 +363,7 @@ static void lyricsTick() {
       if (!stripReady) return;
       lyrShownState = st;
       renderSetLyric("", true);
-      renderLyricBand();
-      epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
-      lastCleanStripPush = lastLyricPush = millis();
+      pushSpotifyLyricStrip();
       lyrShownIdx = -4;                       // note shown
       return;
     }
@@ -367,9 +372,7 @@ static void lyricsTick() {
         if (!stripReady) return;
         lyrShownState = st;
         renderSetLyric("", false);
-        renderLyricBand();
-        epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
-        lastCleanStripPush = lastLyricPush = millis();
+        pushSpotifyLyricStrip();
       } else {
         lyrShownState = st;
       }
@@ -390,9 +393,7 @@ static void lyricsTick() {
       (millis() - lastLyricPush) >= LYRIC_MIN_GAP_MS) {
     lyrShownIdx = want;
     renderSetLyric(idx >= 0 ? String(lyricsText(idx)) : String(""), false);
-    renderLyricBand();
-    epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
-    lastCleanStripPush = lastLyricPush = millis();
+    pushSpotifyLyricStrip();
   }
 }
 
