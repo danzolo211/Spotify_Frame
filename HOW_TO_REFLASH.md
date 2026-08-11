@@ -1,24 +1,37 @@
 # How to re-flash GraceFrame
 
-Follow this any time you update the frame. **Every update is TWO uploads** —
-(A) the firmware (the code) and (B) the data (verses, scenes, phone app). Do
-both, in order. It takes about 5 minutes.
+Follow this any time you update the frame. **Every final update should include
+firmware and data**: code plus `Spotify_Frame/data` (verses, scenes, phone app).
+It takes about 5 minutes.
 
 > **This latest update needs BOTH A and B** (the code and the app both changed).
 
 ---
 
-## Before you start (once)
+## Recommended PowerShell path
 
-1. Plug the frame into this computer with the **USB-C cable**.
-2. Open **Arduino IDE**. Go to **File → Open** and open:
-   `Spotify_Frame/Spotify_Frame.ino`
-3. In the **Tools** menu, set these exactly:
+1. Plug the frame into this computer with the USB-C cable.
+2. Close Serial Monitor or any terminal using the COM port.
+3. Run:
+
+```
+cd C:\Users\Daniel Weber\OneDrive\Desktop
+.\build_spotify_frame.ps1 -Upload -UploadData -Port COM6
+```
+
+The script refuses to upload stale firmware if compile fails. `-UploadData`
+rebuilds and writes the LittleFS image at `0x610000`; Wi-Fi, Spotify credentials,
+and settings in NVS are not touched.
+
+## Arduino IDE fallback
+
+Open **Arduino IDE** and open `Spotify_Frame/Spotify_Frame.ino`. In the **Tools**
+menu, set these exactly:
    - **Board:** ESP32S3 Dev Module
-   - **USB CDC On Boot:** Enabled
+   - **USB CDC On Boot:** Default / Disabled
    - **PSRAM:** OPI PSRAM
    - **Flash Size:** 16MB
-   - **Partition Scheme:** 8M with spiffs (3MB APP/1.5MB SPIFFS)
+   - **Partition Scheme:** 16M Flash (3MB APP/9.9MB FATFS)
    - **Port:** the COM port that appears when you plug the frame in (e.g. `COM5`).
      Not sure which? Unplug the frame, look at the list, plug it back in — the
      new one that appears is it.
@@ -45,6 +58,10 @@ tap **RESET** once, let go of **BOOT**, then click **Upload** again.
 
 > Don't see that command? Install the uploader plugin once (README §3, step 5),
 > restart Arduino IDE, and try again.
+
+Uploading data replaces the LittleFS data partition, including generated
+backgrounds/web app/verses and `favs.bin` if present. NVS values such as Wi-Fi
+and Spotify credentials are separate and survive it.
 
 ---
 

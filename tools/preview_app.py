@@ -22,6 +22,7 @@ import time
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
+import re
 
 from PIL import Image, ImageDraw
 
@@ -63,12 +64,29 @@ def _day(b):
 
 STATE = {"verse": random.randrange(len(VERSES)),
          "bg": random.choice([b["i"] for b in BGS if _day(b)]),
-         "favs": set(), "note": None, "hist": []}
+         "favs": set(), "note": None, "hist": [],
+         "settings": {"verse_min": 20, "idle_min": 3, "progress_s": 10,
+                      "lyrics_on": True, "lyric_lead_ms": 1100,
+                      "quiet_start": 23, "quiet_end": 7,
+                      "her_name": "Emily"}}
+
+def read_notes_topic():
+    env = os.environ.get("GRACEFRAME_NOTES_TOPIC", "").strip()
+    if env:
+        return env
+    secrets = os.path.join(os.path.dirname(HERE), "Spotify_Frame", "secrets.h")
+    try:
+        with open(secrets, encoding="utf-8") as f:
+            m = re.search(r'#define\s+NOTES_TOPIC\s+"([^"]*)"', f.read())
+            return (m.group(1) if m else "").strip()
+    except FileNotFoundError:
+        return ""
+
 
 # Remote notes: poll the same private ntfy.sh topic the firmware listens on, so
-# this preview "frame" receives notes sent from send-note.html — exactly like the
-# real device will. Keep this topic in sync with GraceFrame/secrets.h.
-NOTES_TOPIC = "frame-note-5577-5e3f-0334-763e"
+# this preview "frame" receives notes sent from send-note.html exactly like the
+# real device will. The topic is loaded from the ignored secrets file or env.
+NOTES_TOPIC = read_notes_topic()
 
 
 def _remote_notes_loop():
@@ -110,7 +128,7 @@ def _remote_notes_loop():
 def start_remote_notes():
     if len(NOTES_TOPIC) > 4:
         threading.Thread(target=_remote_notes_loop, daemon=True).start()
-        print("remote notes: watching ntfy topic", NOTES_TOPIC)
+        print("remote notes: watching configured ntfy topic")
 
 MIME = {".html": "text/html", ".json": "application/json",
         ".js": "text/javascript", ".png": "image/png"}
@@ -124,10 +142,11 @@ def _gf(name):
     return GFXFont(os.path.join(GF_DIR, f"font_{name}.h"))
 
 
-SCRIPT_LG, SCRIPT_MD, SCRIPT_SM, SERIF_IT = (
-    _gf("ScriptLg"), _gf("ScriptMd"), _gf("ScriptSm"), _gf("SerifIt"))
-REF_FONT, CAPS_FONT = _gf("SerifRefIt"), _gf("SansSmall")
-VERSE_CHAIN = [SCRIPT_LG, SCRIPT_MD, SCRIPT_SM, SERIF_IT]   # largest that fits wins
+SCRIPT_LG, SCRIPT_MD, SCRIPT_SM, SERIF_IT, SANS_SMALL = (
+    _gf("ScriptLg"), _gf("ScriptMd"), _gf("ScriptSm"), _gf("SerifIt"),
+    _gf("SansSmall"))
+REF_FONT, CAPS_FONT = _gf("SerifRefIt"), SANS_SMALL
+VERSE_CHAIN = [SCRIPT_LG, SCRIPT_MD, SCRIPT_SM, SERIF_IT]
 REFBLOCK = REF_FONT.yadv + 8   # exactly render.cpp's refBlock (SerifRefIt yAdv + 8)
 
 
@@ -142,25 +161,60 @@ def _wrap(text, font, maxw):
     lines, cur = [], ""
     for word in text.split():
         t = (cur + " " + word).strip()
-        if font.width(t) <= maxw or not cur:
+        if font.width(t) <= maxw:
             cur = t
+        elif not cur:
+            return None
         else:
             lines.append(cur)
             cur = word
+            if font.width(cur) > maxw:
+                return None
     if cur:
         lines.append(cur)
     return lines
 
 
-def _fit(text, zw, zh, reserve=REFBLOCK + 4):
+def _fit(text, zw, zh, reserve=REFBLOCK + 4, ref=""):
+    if ref and REF_FONT.width(ref) > zw:
+        return None
     for font in VERSE_CHAIN:
-        maxlines = max(1, (zh - reserve) // font.yadv)
+        maxlines = (zh - reserve) // font.yadv
+        if maxlines < 1:
+            continue
         lines = _wrap(text, font, zw)
-        if len(lines) <= maxlines:
+        if lines and len(lines) <= maxlines and _layout_ok(font, lines, zw, zh, ref):
             return font, lines, font.yadv
-    font = VERSE_CHAIN[-1]
-    maxlines = max(1, (zh - reserve) // font.yadv)
-    return font, _wrap(text, font, zw)[:maxlines], font.yadv
+    return None
+
+
+def _layout_ok(font, lines, zw, zh, ref=""):
+    block = len(lines) * font.yadv + 8 + REFBLOCK
+    if block > zh:
+        return False
+    top = max(0, (zh - block) // 2)
+    cx = zw // 2
+    minx = miny = 10**9
+    maxx = maxy = -10**9
+    ascent = int(font.yadv * 0.72)
+    for i, ln in enumerate(lines):
+        x1, _, w, _ = font.bounds(ln, 0, 120)
+        x = cx - w // 2 - x1
+        bx, by, bw, bh = font.bounds(ln, x, top + i * font.yadv + ascent)
+        minx = min(minx, bx)
+        miny = min(miny, by)
+        maxx = max(maxx, bx + bw)
+        maxy = max(maxy, by + bh)
+    if ref:
+        x1, _, w, _ = REF_FONT.bounds(ref, 0, 120)
+        x = cx - w // 2 - x1
+        baseline = top + len(lines) * font.yadv + 8 + int(REF_FONT.yadv * 0.72)
+        bx, by, bw, bh = REF_FONT.bounds(ref, x, baseline)
+        minx = min(minx, bx)
+        miny = min(miny, by)
+        maxx = max(maxx, bx + bw)
+        maxy = max(maxy, by + bh)
+    return minx >= 0 and miny >= 0 and maxx <= zw and maxy <= zh
 
 
 def _pack(img):
@@ -171,8 +225,8 @@ def _pack(img):
 
 def _center(img, font, s, cx, baseline, ink):
     """Draw s horizontally centered on cx, sitting on the given baseline."""
-    w = font.width(s)
-    font.draw(img, s, int(round(cx - w / 2)), int(round(baseline)), ink)
+    x1, _, w, _ = font.bounds(s, 0, baseline)
+    font.draw(img, s, int(cx - w // 2 - x1), int(baseline), ink)
     return w
 
 
@@ -182,12 +236,15 @@ def render_verse(bg, v):
     ink = 255 if bg["ink"] == "white" else 0
     zx, zy, zw, zh = bg["zone"]
     zx, zw = zx + 6, zw - 12
-    cx = zx + zw / 2
+    cx = zx + zw // 2
     text = v["t"] if "t" in v else v["text"]
     if ADD_QUOTES and not text.startswith('"'):
         text = '"' + text + '"'
     ref = v.get("r") or v.get("ref", "")
-    font, lines, lh = _fit(text, zw, zh)
+    fit = _fit(text, zw, zh, ref=ref)
+    if not fit:
+        raise ValueError(f"verse does not fit {bg['name']}: {ref}")
+    font, lines, lh = fit
     block = len(lines) * lh + 8 + REFBLOCK
     top = zy + max(0, (zh - block) // 2)
     ascent = int(lh * 0.72)
@@ -207,12 +264,13 @@ def render_note(note):
     ink = 0
     zx, zy, zw, zh = bg["zone"]
     zx, zw = zx + 6, zw - 12
-    cx = zx + zw / 2
+    cx = zx + zw // 2
     _center(img, CAPS_FONT, "A NOTE FOR YOU", cx,
             zy + 6 + int(CAPS_FONT.yadv * 0.7), ink)
     frm = note.get("from", "").strip()
     reserve = 26 + (22 if frm else 0)
-    font, lines, lh = _fit(note.get("text", ""), zw, zh, reserve)
+    fit = _fit(note.get("text", ""), zw, zh, reserve)
+    font, lines, lh = fit if fit else (SANS_SMALL, ["Note is too long."], SANS_SMALL.yadv)
     block = len(lines) * lh + (22 if frm else 0)
     top = zy + 26 + max(0, (zh - 26 - block) // 2)
     ascent = int(lh * 0.72)
@@ -232,13 +290,12 @@ def render_screen():
 
 
 # the same capacity-aware verse/scene pairing the firmware uses, at device metrics
-def _fits(bg, text):
+def _fits(bg, text, ref=""):
     zx, zy, zw, zh = bg["zone"]
     zw -= 12
     if ADD_QUOTES and not text.startswith('"'):
         text = '"' + text + '"'
-    font, lines, lh = _fit(text, zw, zh)
-    return len(_wrap(text, font, zw)) <= len(lines)
+    return _fit(text, zw, zh, ref=ref) is not None
 
 
 def pick_bg_for(verse_i):
@@ -247,13 +304,13 @@ def pick_bg_for(verse_i):
     v = VERSES[verse_i]
     text, theme = v["t"], v.get("c", "")
     pool = [b for b in BGS if _day(b)]
-    themed = [b["i"] for b in pool if theme in b["tags"] and _fits(b, text)]
+    themed = [b["i"] for b in pool if theme in b["tags"] and _fits(b, text, v["r"])]
     if themed:
         return random.choice(themed)
-    fitting = [b["i"] for b in pool if _fits(b, text)]
+    fitting = [b["i"] for b in pool if _fits(b, text, v["r"])]
     if fitting:
         return random.choice(fitting)
-    return max(pool, key=lambda b: b["zone"][2] * b["zone"][3])["i"]
+    raise ValueError("no fitting background for verse")
 
 
 STATE["bg"] = pick_bg_for(STATE["verse"])   # make the first verse fit its scene
@@ -296,14 +353,17 @@ class H(BaseHTTPRequestHandler):
                 "note": {"active": bool(STATE["note"]),
                          "text": (STATE["note"] or {}).get("text", ""),
                          "from": (STATE["note"] or {}).get("from", "")},
-                "settings": {"verse_min": 20, "idle_min": 3, "progress_s": 20,
-                             "quiet_start": 23, "quiet_end": 7,
-                             "her_name": "Emily"},
+                "settings": dict(STATE["settings"]),
+                "lyrics": {"on": STATE["settings"]["lyrics_on"], "state": "none", "lines": 0,
+                           "http": 0, "len": 0, "clen": 0,
+                           "lead_ms": STATE["settings"]["lyric_lead_ms"]},
                 "device": {"rssi": -48, "heap": 178000, "uptime_s": 4321,
                            "refreshes": 87, "verses": len(VERSES),
                            "favs": len(STATE["favs"]), "bgs": len(BGS),
                            "translation": "NIV", "spotify_ok": True,
                            "time": time.strftime("%H:%M")}})
+        elif p == "/api/settings":
+            self._json(dict(STATE["settings"]))
         elif p == "/api/screen":
             self._bytes(render_screen(), "application/octet-stream")
         elif p == "/api/bg":
@@ -333,9 +393,11 @@ class H(BaseHTTPRequestHandler):
                 {"i": i, "r": VERSES[i]["r"], "at": 0, "f": i in STATE["favs"]}
                 for i in STATE["hist"][:24]]})
         elif p == "/api/bgs":
+            cur = VERSES[STATE["verse"]]
             self._json({"current": STATE["bg"], "items": [
                 {"i": b["i"], "name": b["name"],
-                 "night": "night" in b["tags"], "special": "special" in b["tags"]}
+                 "night": "night" in b["tags"], "special": "special" in b["tags"],
+                 "fits": _fits(b, cur["t"], cur["r"])}
                 for b in BGS]})
         else:
             fp = os.path.join(WWW, "index.html" if p == "/" else p.lstrip("/"))
@@ -362,12 +424,36 @@ class H(BaseHTTPRequestHandler):
         elif p == "/api/fav":
             (STATE["favs"].add if body.get("fav") else STATE["favs"].discard)(int(body["id"]))
         elif p == "/api/bg/show":
-            STATE["bg"] = int(body["i"])
+            i = int(body["i"])
+            cur = VERSES[STATE["verse"]]
+            if not _fits(BGS[i], cur["t"], cur["r"]):
+                self._json({"ok": False,
+                            "err": "That verse needs a roomier scene."}, 409)
+                return
+            STATE["bg"] = i
             STATE["note"] = None   # a new-scene pick also drops the note
         elif p == "/api/note":
             STATE["note"] = body
         elif p == "/api/note/clear":
             STATE["note"] = None
+        elif p == "/api/settings":
+            s = STATE["settings"]
+            if "verse_min" in body:
+                s["verse_min"] = min(240, max(2, int(body["verse_min"])))
+            if "idle_min" in body:
+                s["idle_min"] = min(60, max(1, int(body["idle_min"])))
+            if "progress_s" in body:
+                s["progress_s"] = min(120, max(0, int(body["progress_s"])))
+            if "lyric_lead_ms" in body:
+                s["lyric_lead_ms"] = min(2500, max(-1000, int(body["lyric_lead_ms"])))
+            if "quiet_start" in body:
+                s["quiet_start"] = min(23, max(0, int(body["quiet_start"])))
+            if "quiet_end" in body:
+                s["quiet_end"] = min(23, max(0, int(body["quiet_end"])))
+            if "lyrics_on" in body:
+                s["lyrics_on"] = bool(body["lyrics_on"])
+            if "her_name" in body:
+                s["her_name"] = str(body["her_name"])[:30]
         self._json({"ok": True})
 
 

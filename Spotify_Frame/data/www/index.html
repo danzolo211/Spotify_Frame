@@ -55,20 +55,36 @@ h2{font-size:15px;letter-spacing:.18em;text-transform:uppercase;
 .vitem:last-child{border-bottom:0}
 .vitem .r{font-weight:600}
 .vitem .s{color:var(--soft);font-size:16px;margin-top:2px}
-.heart{background:none;border:none;font-size:22px;cursor:pointer;
-  color:var(--line);padding:6px}
-.heart.on{color:var(--accent)}
+.heart{background:transparent;border:1px solid transparent;border-radius:999px;
+  width:42px;height:42px;display:inline-grid;place-items:center;cursor:pointer;
+  color:var(--soft);padding:0;transition:background .18s,border-color .18s,
+  color .18s,transform .08s}
+.heart svg{width:24px;height:24px;display:block;stroke:currentColor;
+  stroke-width:1.85;stroke-linecap:round;stroke-linejoin:round;fill:transparent}
+.heart.on{color:var(--accent);background:rgba(124,45,45,.06);
+  border-color:rgba(124,45,45,.22)}
+.heart.on svg path{fill:currentColor}
+.heart:active{transform:scale(.96)}
+.fav-chip{display:inline-flex;align-items:center;gap:6px}
+.fav-chip svg,.fav-action svg{width:16px;height:16px;stroke:currentColor;
+  stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;fill:transparent}
+.fav-action{display:inline-flex;align-items:center;gap:8px}
+.fav-action.on svg path{fill:currentColor}
 input,textarea,select{width:100%;padding:12px;font:inherit;font-size:17px;
   border:1px solid var(--line);border-radius:10px;background:var(--paper2);
   color:var(--ink)}
 textarea{min-height:110px;resize:vertical}
 label{display:block;margin:12px 0 6px;color:var(--soft);font-size:15px;
   letter-spacing:.06em}
+label.check{display:flex;align-items:center;gap:10px;letter-spacing:0;
+  color:var(--ink);font-size:17px}
+label.check input{width:auto}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 .grid canvas{width:100%;aspect-ratio:4/3;border:1px solid var(--line);
   border-radius:8px;background:#fff;cursor:pointer;image-rendering:pixelated}
 .grid .cell{position:relative}
 .grid .cell.cur canvas{outline:3px solid var(--gold)}
+.grid .cell.nofit canvas{opacity:.38}
 .grid .nm{font-size:11px;color:var(--soft);text-align:center;margin-top:2px;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 nav{position:fixed;left:0;right:0;bottom:0;display:flex;
@@ -132,7 +148,11 @@ details{margin-top:10px}summary{cursor:pointer;color:var(--soft)}
     <div class="verse-big" id="vText">…</div>
     <div class="ref" id="vRef"></div>
     <div style="text-align:center">
-      <button class="heart" id="vHeart">&#10084;</button>
+      <button class="heart" id="vHeart" aria-label="Save to favorites">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 20.1C8.1 17.4 3.2 13.5 3.2 8.9c0-2.7 2-4.7 4.6-4.7 1.8 0 3.3 1 4.2 2.4.9-1.4 2.4-2.4 4.2-2.4 2.6 0 4.6 2 4.6 4.7 0 4.6-4.9 8.5-8.8 11.2z"></path>
+        </svg>
+      </button>
     </div>
     <div style="text-align:center;margin-top:6px" id="catChips"></div>
     <div style="text-align:center">
@@ -150,7 +170,12 @@ details{margin-top:10px}summary{cursor:pointer;color:var(--soft)}
     <input id="q" type="search" placeholder="Search verses by word or reference…">
     <div style="margin-top:10px" id="vFilters">
       <span class="chip on" data-f="all">All</span>
-      <span class="chip" data-f="fav">&#10084; Favorites</span>
+      <span class="chip fav-chip" data-f="fav">
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 20.1C8.1 17.4 3.2 13.5 3.2 8.9c0-2.7 2-4.7 4.6-4.7 1.8 0 3.3 1 4.2 2.4.9-1.4 2.4-2.4 4.2-2.4 2.6 0 4.6 2 4.6 4.7 0 4.6-4.9 8.5-8.8 11.2z"></path>
+        </svg>
+        Favorites
+      </span>
       <span class="chip" data-f="hist">Recently shown</span>
     </div>
     <div id="vCats" style="margin-top:2px"></div>
@@ -204,6 +229,9 @@ details{margin-top:10px}summary{cursor:pointer;color:var(--soft)}
     <input type="range" id="sIdle" min="1" max="15" step="1">
     <label>Song progress updates <b id="lblProg"></b></label>
     <input type="range" id="sProg" min="0" max="60" step="10">
+    <label class="check"><input type="checkbox" id="sLyrics"> Live lyrics</label>
+    <label>Lyric timing <b id="lblLead"></b></label>
+    <input type="range" id="sLead" min="-1000" max="2500" step="100">
     <label>Quiet hours (screen rests)</label>
     <div style="display:flex;gap:10px">
       <select id="sQs"></select><select id="sQe"></select>
@@ -236,7 +264,10 @@ details{margin-top:10px}summary{cursor:pointer;color:var(--soft)}
       <label>Client Secret</label><input id="spSecret" autocomplete="off">
       <label>Refresh Token <span class="muted">(the account-specific one)</span></label>
       <input id="spRefresh" autocomplete="off">
-      <div style="margin-top:12px"><button class="btn small" id="btnSp">Save Spotify</button></div>
+      <div style="margin-top:12px">
+        <button class="btn small" id="btnSp">Save Spotify</button>
+        <button class="btn small ghost" id="btnSpRevert">Revert test Spotify</button>
+      </div>
     </details>
   </div>
 </section>
@@ -259,20 +290,82 @@ const CATS = ["love","hope","faith","peace","strength","comfort","joy",
               "wisdom","praise","promise","salvation","prayer","guidance","courage"];
 let status = null, pickedCat = "", listFilter = "all", listCat = "", listOffset = 0;
 let bgMeta = [];
+let galleryBuilt = false, lastVerseId = null;
+let tickBusy = false, offlineMisses = 0;
 
 function toast(msg){
   const t = $("#toast"); t.textContent = msg; t.style.opacity = 1;
   clearTimeout(t._h); t._h = setTimeout(() => t.style.opacity = 0, 1800);
 }
-async function api(path, opts){
-  const r = await fetch(path, opts);
-  if (!r.ok) throw new Error("HTTP " + r.status);
+const sleep = (ms) => new Promise(res => setTimeout(res, ms));
+async function fetchWithTimeout(path, opts, timeoutMs){
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    return await fetch(path, {...(opts || {}), cache:"no-store", signal: ctl.signal});
+  } finally {
+    clearTimeout(t);
+  }
+}
+async function netFetch(path, opts, timeoutMs = 9000, tries = 2){
+  let last;
+  for (let i = 0; i < tries; i++) {
+    try { return await fetchWithTimeout(path, opts, timeoutMs); }
+    catch (e) { last = e; if (i + 1 < tries) await sleep(500 + i * 700); }
+  }
+  throw last;
+}
+async function api(path, opts, cfg){
+  const r = await netFetch(path, opts, cfg?.timeout || 11000, cfg?.tries || 2);
+  if (!r.ok) {
+    let msg = "HTTP " + r.status;
+    try {
+      const e = await r.json();
+      msg = e.err || msg;
+    } catch (_) {}
+    throw new Error(msg);
+  }
   return r.headers.get("content-type")?.includes("json") ? r.json() : r;
 }
 const post = (path, body) => api(path, {method:"POST",
   headers:{"Content-Type":"application/json"}, body: JSON.stringify(body||{})});
 const mmss = (ms) => { const s = Math.floor(ms/1000);
   return Math.floor(s/60) + ":" + String(s%60).padStart(2,"0"); };
+function settingsPayload(){
+  return {
+    verse_min: +$("#sVerse").value,
+    idle_min: +$("#sIdle").value,
+    progress_s: +$("#sProg").value,
+    quiet_start: +$("#sQs").value,
+    quiet_end: +$("#sQe").value,
+    lyrics_on: $("#sLyrics").checked,
+    lyric_lead_ms: +$("#sLead").value,
+    her_name: $("#sName").value.trim()
+  };
+}
+function settingsMatch(want, got){
+  return got && got.verse_min === want.verse_min &&
+    got.idle_min === want.idle_min &&
+    got.progress_s === want.progress_s &&
+    got.quiet_start === want.quiet_start &&
+    got.quiet_end === want.quiet_end &&
+    got.lyrics_on === want.lyrics_on &&
+    got.lyric_lead_ms === want.lyric_lead_ms &&
+    got.her_name === want.her_name;
+}
+const HEART_PATH = "M12 20.1C8.1 17.4 3.2 13.5 3.2 8.9c0-2.7 2-4.7 4.6-4.7 1.8 0 3.3 1 4.2 2.4.9-1.4 2.4-2.4 4.2-2.4 2.6 0 4.6 2 4.6 4.7 0 4.6-4.9 8.5-8.8 11.2z";
+const heartSvg = () => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${HEART_PATH}"></path></svg>`;
+function setHeartState(btn, on){
+  btn.classList.toggle("on", !!on);
+  btn.setAttribute("aria-label", on ? "Remove from favorites" : "Save to favorites");
+}
+function favActionHtml(on){
+  return heartSvg() + `<span>${on ? "Favorited" : "Favorite"}</span>`;
+}
+function setFavAction(btn, on){
+  btn.classList.toggle("on", !!on);
+  btn.innerHTML = favActionHtml(on);
+}
 
 // ---------- 1-bit screen renderer (shared by mirror + gallery) ----------
 function drawBits(canvas, buf){
@@ -289,7 +382,8 @@ function drawBits(canvas, buf){
 }
 async function refreshMirror(){
   try{
-    const r = await fetch("/api/screen");
+    const r = await netFetch("/api/screen", null, 7000, 1);
+    if (!r.ok) return;
     drawBits($("#mirror"), await r.arrayBuffer());
   }catch(e){}
 }
@@ -297,9 +391,13 @@ async function refreshMirror(){
 // ---------- status poll ----------
 async function refreshStatus(){
   try{
-    status = await api("/api/status");
+    status = await api("/api/status", null, {timeout:8000, tries:1});
+    offlineMisses = 0;
   }catch(e){
-    $("#modeTag").textContent = "frame offline?"; return;
+    offlineMisses++;
+    $("#modeTag").textContent =
+      offlineMisses < 3 ? "frame busy re-inking…" : "frame reconnecting…";
+    return false;
   }
   const s = status;
   $("#clock").textContent = s.device.time || "";
@@ -318,20 +416,27 @@ async function refreshStatus(){
     $("#tDur").textContent = mmss(s.track.duration);
   }
   if (s.verse){
+    if (lastVerseId !== s.verse.id) {
+      lastVerseId = s.verse.id;
+      bgMeta = [];
+      galleryBuilt = false;
+      $("#bgGrid").innerHTML = "";
+    }
     $("#vText").textContent = s.verse.text;
     $("#vRef").textContent = "— " + s.verse.ref;
     const h = $("#vHeart");
-    h.classList.toggle("on", !!s.verse.fav);
+    setHeartState(h, !!s.verse.fav);
     h.onclick = async () => {
       await post("/api/fav", {id: s.verse.id, fav: !s.verse.fav});
       s.verse.fav = !s.verse.fav;
-      h.classList.toggle("on", s.verse.fav);
-      toast(s.verse.fav ? "Saved to favorites ❤" : "Removed from favorites");
+      setHeartState(h, s.verse.fav);
+      toast(s.verse.fav ? "Saved to favorites" : "Removed from favorites");
     };
   }
   $("#nextIn").textContent =
     s.mode === "verse" && s.next_verse_s
       ? "next verse in ~" + Math.ceil(s.next_verse_s/60) + " min" : "";
+  return true;
 }
 
 // After an action, the frame needs a few seconds to re-ink. Poll a handful of
@@ -340,7 +445,7 @@ function refreshSoon(){
   // fire immediately so the preview never lingers on a stale frame, then a few
   // more times as the e-paper finishes re-inking (hardware needs a few seconds).
   [0, 400, 1200, 2600, 4500, 6500].forEach(t =>
-    setTimeout(() => { refreshStatus(); refreshMirror(); }, t));
+    setTimeout(tick, t));
 }
 
 // ---------- Now actions ----------
@@ -350,8 +455,9 @@ $("#btnNew").onclick = async () => {
   refreshSoon();
 };
 $("#btnShuffleBg").onclick = async () => {
-  if (!bgMeta.length) await loadBgMeta();
-  const normal = bgMeta.filter(b => !b.special);
+  await loadBgMeta();
+  const normal = bgMeta.filter(b => !b.special && b.fits !== false);
+  if (!normal.length) return toast("That verse needs the roomiest scene");
   const pick = normal[Math.floor(Math.random()*normal.length)];
   await post("/api/bg/show", {i: pick.i});
   toast("Repainting the scene…");
@@ -411,12 +517,12 @@ async function loadVerses(reset){
     div.innerHTML = `<div class="rowline"><div style="flex:1">
         <div class="r">${v.r}${v.c ? ` <span class="muted">· ${v.c}</span>`:""}</div>
         <div class="s">${v.s || ""}</div></div>
-        <button class="heart ${v.f ? "on":""}">&#10084;</button></div>`;
+        <button class="heart ${v.f ? "on":""}" aria-label="${v.f ? "Remove from favorites" : "Save to favorites"}">${heartSvg()}</button></div>`;
     div.querySelector(".heart").onclick = async (ev) => {
       ev.stopPropagation();
       v.f = !v.f;
       await post("/api/fav", {id: v.i, fav: v.f});
-      ev.target.classList.toggle("on", v.f);
+      setHeartState(ev.currentTarget, v.f);
     };
     div.onclick = () => openVerse(v.i);
     list.appendChild(div);
@@ -435,7 +541,7 @@ async function openVerse(id){
     <div class="ref">— ${v.ref}</div>
     <div style="text-align:center;margin-top:14px">
       <button class="btn" id="mShow">Show on frame</button>
-      <button class="btn ghost" id="mFav">${v.fav ? "♥ Favorited" : "♡ Favorite"}</button>
+      <button class="btn ghost fav-action ${v.fav ? "on" : ""}" id="mFav">${favActionHtml(v.fav)}</button>
     </div>`;
   $("#modal").classList.add("on");
   $("#mShow").onclick = async () => {
@@ -446,7 +552,7 @@ async function openVerse(id){
   $("#mFav").onclick = async () => {
     v.fav = !v.fav;
     await post("/api/fav", {id, fav: v.fav});
-    $("#mFav").textContent = v.fav ? "♥ Favorited" : "♡ Favorite";
+    setFavAction($("#mFav"), v.fav);
   };
 }
 function closeModal(){ $("#modal").classList.remove("on"); }
@@ -473,7 +579,6 @@ async function loadBgMeta(){
   bgMeta = d.items;
   return d;
 }
-let galleryBuilt = false;
 async function buildGallery(){
   if (galleryBuilt) return;
   galleryBuilt = true;
@@ -481,7 +586,8 @@ async function buildGallery(){
   const grid = $("#bgGrid");
   for (const b of d.items){
     const cell = document.createElement("div");
-    cell.className = "cell" + (b.i === d.current ? " cur" : "");
+    cell.className = "cell" + (b.i === d.current ? " cur" : "")
+      + (b.fits === false ? " nofit" : "");
     const cv = document.createElement("canvas");
     cv.width = 400; cv.height = 300;
     cell.appendChild(cv);
@@ -490,15 +596,22 @@ async function buildGallery(){
     cell.appendChild(nm);
     grid.appendChild(cell);
     cv.onclick = async () => {
-      await post("/api/bg/show", {i: b.i});
-      toast("Repainting with “" + b.name + "”…");
-      grid.querySelectorAll(".cell").forEach(c => c.classList.remove("cur"));
-      cell.classList.add("cur");
-      refreshSoon();
+      if (b.fits === false) return toast("That verse needs a roomier scene");
+      try {
+        await post("/api/bg/show", {i: b.i});
+        toast("Repainting with “" + b.name + "”…");
+        grid.querySelectorAll(".cell").forEach(c => c.classList.remove("cur"));
+        cell.classList.add("cur");
+        refreshSoon();
+      } catch (e) {
+        toast(e.message || "That scene will not fit this verse");
+      }
     };
-    fetch("/api/bg?i=" + b.i)
-      .then(r => r.arrayBuffer()).then(buf => drawBits(cv, buf));
-    await new Promise(res => setTimeout(res, 60));  // be kind to the ESP32
+    try {
+      const r = await netFetch("/api/bg?i=" + b.i, null, 9000, 2);
+      if (r.ok) drawBits(cv, await r.arrayBuffer());
+    } catch (e) {}
+    await sleep(140);  // be kind to the ESP32 while the gallery fills in
   }
 }
 
@@ -538,15 +651,22 @@ function fillSettings(){
   $("#sIdle").value = s.idle_min; $("#lblIdle").textContent = s.idle_min + " min";
   $("#sProg").value = s.progress_s;
   $("#lblProg").textContent = s.progress_s ? "every " + s.progress_s + "s" : "off (calm)";
+  $("#sLyrics").checked = !!s.lyrics_on;
+  $("#sLead").value = s.lyric_lead_ms ?? 1100;
+  $("#lblLead").textContent =
+    (+$("#sLead").value >= 0 ? "+" : "") + $("#sLead").value + " ms";
   hourOptions($("#sQs"), s.quiet_start);
   hourOptions($("#sQe"), s.quiet_end);
   $("#sName").value = s.her_name;
   const d = status.device;
+  const lx = status.lyrics || {};
+  const lstate = lx.on ? (lx.state || "unknown") : "off";
   $("#devInfo").innerHTML = `
     <div class="kv"><span>Bible</span><b>${d.verses} verses · ${d.translation}</b></div>
     <div class="kv"><span>Favorites</span><b>${d.favs}</b></div>
     <div class="kv"><span>Scenes</span><b>${d.bgs}</b></div>
     <div class="kv"><span>Spotify</span><b>${({ok:"linked ✓",failed:"credentials rejected ✕",none:"not linked",unknown:"linking…"})[d.spotify_link] || (d.spotify_ok ? "linked ✓" : "not linked")}</b></div>
+    <div class="kv"><span>Lyrics</span><b>${lstate} · ${lx.lines || 0} lines · ${lx.route || "none"} ${lx.reason || ""} · HTTP ${lx.http || 0} · ${lx.len || 0}/${lx.clen ?? 0} B</b></div>
     <div class="kv"><span>Wi-Fi signal</span><b>${d.rssi} dBm</b></div>
     <div class="kv"><span>Screen refreshes</span><b>${d.refreshes}</b></div>
     <div class="kv"><span>Awake for</span><b>${Math.floor(d.uptime_s/3600)}h ${Math.floor(d.uptime_s%3600/60)}m</b></div>`;
@@ -555,18 +675,25 @@ $("#sVerse").oninput = e => $("#lblVerse").textContent = e.target.value + " min"
 $("#sIdle").oninput = e => $("#lblIdle").textContent = e.target.value + " min";
 $("#sProg").oninput = e => $("#lblProg").textContent =
   +e.target.value ? "every " + e.target.value + "s" : "off (calm)";
+$("#sLead").oninput = e => $("#lblLead").textContent =
+  (+e.target.value >= 0 ? "+" : "") + e.target.value + " ms";
 $("#btnSaveSettings").onclick = async () => {
   const b = $("#btnSaveSettings"); b.disabled = true;
+  const oldText = b.textContent;
+  b.textContent = "Saving...";
   try {
-    await post("/api/settings", {
-      verse_min: +$("#sVerse").value, idle_min: +$("#sIdle").value,
-      progress_s: +$("#sProg").value, quiet_start: +$("#sQs").value,
-      quiet_end: +$("#sQe").value, her_name: $("#sName").value.trim()});
-    toast("Saved ✓");
+    const want = settingsPayload();
+    await post("/api/settings", want);
+    const confirmed = await refreshStatus();
+    if (confirmed) fillSettings();
+    toast(settingsMatch(want, status?.settings)
+      ? "Saved and confirmed ✓"
+      : "Saved — frame adjusted the values");
   } catch (e) {
     toast("Couldn't reach the frame — try again");
   } finally {
     b.disabled = false;
+    b.textContent = oldText;
   }
 };
 $("#btnForce").onclick = async () => {
@@ -614,6 +741,18 @@ $("#btnSp").onclick = async () => {
     [2500, 6000].forEach(t => setTimeout(() => { refreshStatus().then(fillSettings); }, t));
   }
 };
+$("#btnSpRevert").onclick = async () => {
+  $("#btnSpRevert").disabled = true;
+  try {
+    await post("/api/spotify/revert", {});
+    await refreshStatus(); fillSettings();
+    toast("Back to saved Spotify ✓");
+  } catch (e) {
+    toast("Couldn't reach the frame");
+  } finally {
+    $("#btnSpRevert").disabled = false;
+  }
+};
 
 // ---------- navigation ----------
 document.querySelectorAll("nav button").forEach(b => {
@@ -630,9 +769,14 @@ document.querySelectorAll("nav button").forEach(b => {
 
 // ---------- lifecycle ----------
 async function tick(){
-  if (document.hidden) return;
-  await refreshStatus();
-  await refreshMirror();
+  if (document.hidden || tickBusy) return;
+  tickBusy = true;
+  try {
+    const ok = await refreshStatus();
+    if (ok) await refreshMirror();
+  } finally {
+    tickBusy = false;
+  }
 }
 tick();
 setInterval(tick, 5000);

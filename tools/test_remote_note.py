@@ -2,11 +2,28 @@
 """End-to-end check for remote notes: publish exactly like send-note.html, then
 poll + parse exactly like the frame / preview_app. Exits non-zero on failure."""
 import json
+import os
+import re
 import sys
 import time
 import urllib.request
 
-TOPIC = "frame-note-5577-5e3f-0334-763e"
+
+def read_notes_topic():
+    env = os.environ.get("GRACEFRAME_NOTES_TOPIC", "").strip()
+    if env:
+        return env
+    secrets = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                           "Spotify_Frame", "secrets.h")
+    try:
+        with open(secrets, encoding="utf-8") as f:
+            m = re.search(r'#define\s+NOTES_TOPIC\s+"([^"]*)"', f.read())
+            return (m.group(1) if m else "").strip()
+    except FileNotFoundError:
+        return ""
+
+
+TOPIC = read_notes_topic()
 BASE = "https://ntfy.sh/" + TOPIC
 
 
@@ -44,6 +61,9 @@ def poll(since):
 
 
 def main():
+    if not TOPIC:
+        print("FAIL: NOTES_TOPIC not set in GRACEFRAME_NOTES_TOPIC or Spotify_Frame/secrets.h")
+        return 1
     since = int(time.time()) - 2
     text = "Test note %d — thinking of you." % int(time.time())
     print("publishing:", text)

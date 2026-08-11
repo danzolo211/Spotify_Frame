@@ -30,14 +30,13 @@ for b in p.BGS:
     bits_ok = (n == 400 * 300 // 8)
     ok &= bits_ok
     # a rendered verse composite must also be pure 1-bit
-    comp = p.render_verse(b, {"t": "Crispness test of the quick brown fox.",
-                              "r": b["name"]})
+    comp = p.render_verse(b, {"t": "Crisp pixels.", "r": "Test"})
     comp_ok = (len(comp) == 15000)
     ok &= comp_ok
-print("  all 15 backgrounds are exactly 15000 bytes (1 bit/pixel):",
+print("  all %d backgrounds are exactly 15000 bytes (1 bit/pixel):" % len(p.BGS),
       "PASS" if ok else "FAIL")
 
-print("\n== verse-zone cleanliness (ink density where the words go) ==")
+print("\n== verse-zone cleanliness (stray pixels where the words go) ==")
 print("  a clean canvas should be near 0%%; framed scenes a touch higher\n")
 worst = 0.0
 for b in p.BGS:
@@ -45,10 +44,11 @@ for b in p.BGS:
         img = unpack(f.read()).convert("L")
     zx, zy, zw, zh = b["zone"]
     crop = img.crop((zx, zy, zx + zw, zy + zh))
+    text_bg = 0 if b.get("ink") == "white" else 255
     px = list(crop.getdata())
-    ink = sum(1 for v in px if v < 128) / len(px) * 100
-    worst = max(worst, ink)
-    flag = "  <-- check" if ink > 6 else ""
-    print("  %-16s zone ink %5.2f%%%s" % (b["name"], ink, flag))
-print("\n  worst zone ink: %.2f%%  (%s)" %
+    stray = sum(1 for v in px if v != text_bg) / len(px) * 100
+    worst = max(worst, stray)
+    flag = "  <-- check" if stray > 6 else ""
+    print("  %-16s zone stray %5.2f%%%s" % (b["name"], stray, flag))
+print("\n  worst zone stray: %.2f%%  (%s)" %
       (worst, "clean" if worst < 8 else "review"))

@@ -7,6 +7,7 @@ struct Settings {
   uint16_t verseMin;
   uint16_t idleMin;
   uint16_t progressS;
+  int16_t lyricLeadMs;
   uint8_t quietStart, quietEnd;
   bool lyricsOn;
   String herName;

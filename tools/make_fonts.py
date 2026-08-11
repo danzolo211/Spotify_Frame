@@ -30,7 +30,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-OUT_DIR = os.path.join(ROOT, "GraceFrame")
+OUT_DIR = os.path.join(ROOT, "Spotify_Frame")
 CACHE = os.path.join(HERE, "fonts_cache")
 PREV = os.path.join(HERE, "previews")
 

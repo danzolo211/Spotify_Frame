@@ -4,6 +4,7 @@
 #include "bgs.h"
 #include "spotify.h"
 #include "lyrics.h"
+#include "render.h"
 #include "epaper.h"
 #include "netmgr.h"
 #include "config.h"
@@ -95,11 +96,16 @@ static void hStatus() {
   jl["lines"] = lyricsCount();
   jl["http"] = lyricsLastHttp();
   jl["len"] = lyricsLastLen();
+  jl["clen"] = lyricsLastContentLength();
+  jl["route"] = lyricsLastRoute();
+  jl["reason"] = lyricsLastReason();
+  jl["lead_ms"] = settings.lyricLeadMs;
 
   JsonObject js = doc["settings"].to<JsonObject>();
   js["verse_min"] = settings.verseMin;
   js["idle_min"] = settings.idleMin;
   js["progress_s"] = settings.progressS;
+  js["lyric_lead_ms"] = settings.lyricLeadMs;
   js["quiet_start"] = settings.quietStart;
   js["quiet_end"] = settings.quietEnd;
   js["lyrics_on"] = settings.lyricsOn;
@@ -243,6 +249,8 @@ static void hHistory() {
 static void hBgs() {
   JsonDocument doc;
   JsonArray arr = doc["items"].to<JsonArray>();
+  Verse cur;
+  bool haveVerse = app.verseId >= 0 && versesGet(app.verseId, cur);
   for (int i = 0; i < bgsCount(); i++) {
     const BgInfo& b = bgsGet(i);
     JsonObject o = arr.add<JsonObject>();
@@ -250,6 +258,7 @@ static void hBgs() {
     o["name"] = b.name;
     o["night"] = b.night;
     o["special"] = b.special;
+    o["fits"] = !haveVerse || renderVerseFits(cur.text, cur.ref, b.zw - 12, b.zh);
   }
   doc["current"] = app.bgId;
   sendJson(doc);
@@ -269,7 +278,21 @@ static void hBgBin() {
 static void hBgShow() {
   JsonDocument doc;
   if (!readBody(doc)) { server.send(400, "text/plain", "bad body"); return; }
-  app.pending.showBgId = doc["i"].as<int>();
+  int i = doc["i"].as<int>();
+  if (i < 0 || i >= bgsCount()) {
+    server.send(400, "application/json", "{\"ok\":false,\"err\":\"bad scene\"}");
+    return;
+  }
+  Verse cur;
+  if (app.verseId >= 0 && versesGet(app.verseId, cur)) {
+    const BgInfo& b = bgsGet(i);
+    if (!renderVerseFits(cur.text, cur.ref, b.zw - 12, b.zh)) {
+      server.send(409, "application/json",
+                  "{\"ok\":false,\"err\":\"That verse needs a roomier scene.\"}");
+      return;
+    }
+  }
+  app.pending.showBgId = i;
   sendOk();
 }
 
@@ -300,6 +323,7 @@ static void hSettingsGet() {
   doc["verse_min"] = settings.verseMin;
   doc["idle_min"] = settings.idleMin;
   doc["progress_s"] = settings.progressS;
+  doc["lyric_lead_ms"] = settings.lyricLeadMs;
   doc["quiet_start"] = settings.quietStart;
   doc["quiet_end"] = settings.quietEnd;
   doc["lyrics_on"] = settings.lyricsOn;
@@ -316,6 +340,8 @@ static void hSettingsPost() {
     settings.idleMin = constrain(doc["idle_min"].as<int>(), 1, 60);
   if (!doc["progress_s"].isNull())
     settings.progressS = constrain(doc["progress_s"].as<int>(), 0, 120);
+  if (!doc["lyric_lead_ms"].isNull())
+    settings.lyricLeadMs = constrain(doc["lyric_lead_ms"].as<int>(), -1000, 2500);
   if (!doc["quiet_start"].isNull())
     settings.quietStart = constrain(doc["quiet_start"].as<int>(), 0, 23);
   if (!doc["quiet_end"].isNull())
@@ -341,11 +367,36 @@ static void hSpotifyCreds() {
 static void hSpotifyTestLive() {
   JsonDocument doc;
   if (!readBody(doc)) { server.send(400, "text/plain", "bad body"); return; }
-  spotifySetCredsTemp(doc["id"] | "", doc["secret"] | "", doc["refresh"] | "");
+  String id = doc["id"] | "";
+  String secret = doc["secret"] | "";
+  String refresh = doc["refresh"] | "";
+  if (!id.length() || !secret.length() || !refresh.length()) {
+    server.send(400, "application/json",
+                "{\"err\":\"id, secret and refresh are required\"}");
+    return;
+  }
+  spotifySetCredsTemp(id, secret, refresh);
   JsonDocument out;
   out["link"] = spotifyLinkState() == SP_LINK_OK ? "ok"
                 : spotifyLinkState() == SP_LINK_FAILED ? "failed" : "unknown";
   out["temporary"] = true;
+  if (spotifyLinkState() == SP_LINK_OK) {
+    Track t;
+    int r = spotifyPoll(t);
+    out["poll"] = r == SP_OK ? "ok"
+                  : r == SP_IDLE ? "idle"
+                  : r == SP_COOLDOWN ? "cooldown" : "error";
+    if (r == SP_OK) {
+      JsonObject jt = out["track"].to<JsonObject>();
+      jt["id"] = t.id;
+      jt["title"] = t.title;
+      jt["artist"] = t.artist;
+      jt["album"] = t.album;
+      jt["playing"] = t.playing;
+      jt["progress"] = t.progress;
+      jt["duration"] = t.duration;
+    }
+  }
   sendJson(out);
 }
 

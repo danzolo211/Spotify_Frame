@@ -36,5 +36,9 @@ int  lyricsState();
 int  lyricsCount();                    // parsed line count (diagnostics)
 int  lyricsLastHttp();                 // last LrcLib HTTP status (diagnostics)
 int  lyricsLastLen();                  // last LrcLib body length (diagnostics)
+int  lyricsLastContentLength();        // response Content-Length, or -1 if chunked
+const char* lyricsLastRoute();         // get+d/get/search/fail, diagnostics
+const char* lyricsLastReason();        // compact reason for the last result
 int  lyricsActiveIndex(uint32_t ms);   // last line with time_ms <= ms, else -1
+uint32_t lyricsLineTimeMs(int idx);    // timestamp for diagnostics/tests
 const char* lyricsText(int idx);       // "" if out of range

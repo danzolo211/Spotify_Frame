@@ -33,23 +33,17 @@ W, H = 400, 300
 # a representative verse per scene: roomy verses where the zone is generous,
 # short ones where it's tight — so the composite is an honest fit test.
 SAMPLE = {
-    "golgotha-dawn": ("He was pierced for our transgressions, he was crushed "
-                      "for our iniquities.", "Isaiah 53:5"),
+    "golgotha-dawn": ("By his wounds we are healed.", "Isaiah 53:5"),
     "shepherd": ("The Lord is my shepherd, I lack nothing.", "Psalm 23:1"),
-    "lighthouse": ("The Lord is my light and my salvation - whom shall I "
-                   "fear?", "Psalm 27:1"),
-    "still-waters": ("He leads me beside quiet waters, he refreshes my "
-                     "soul.", "Psalm 23:2-3"),
+    "lighthouse": ("The Lord is my light and my salvation.", "Psalm 27:1"),
+    "still-waters": ("He leads me beside quiet waters.", "Psalm 23:2"),
     "empty-tomb": ("He is not here; he has risen, just as he said.",
                    "Matthew 28:6"),
     "botanical-frame": ("Love is patient, love is kind. It always protects, "
                         "always trusts, always hopes.", "1 Cor 13:4-7"),
-    "dove-descending": ("The Spirit of God was hovering over the waters.",
-                        "Genesis 1:2"),
-    "wheat-field": ("The harvest is plentiful but the workers are few.",
-                    "Matthew 9:37"),
-    "mountain-path": ("In all your ways submit to him, and he will make your "
-                      "paths straight.", "Proverbs 3:6"),
+    "dove-ascending": ("The Spirit of God was hovering over the waters.",
+                       "Genesis 1:2"),
+    "mountain-path": ("He will make your paths straight.", "Proverbs 3:6"),
     "open-book": ("Your word is a lamp for my feet, a light on my path.",
                   "Psalm 119:105"),
     "sailboat-dawn": ("He rebuked the wind and said, 'Quiet! Be still!'",
@@ -59,8 +53,7 @@ SAMPLE = {
     "moonlit-hills": ("I lift up my eyes to the mountains - where does my "
                       "help come from?", "Psalm 121:1"),
     # new water / ukiyo-e scenes
-    "great-wave": ("You rule over the surging sea; when its waves mount up, "
-                   "you still them.", "Psalm 89:9"),
+    "great-wave": ("When its waves mount up, you still them.", "Psalm 89:9"),
     "fuji-serene": ("Be still, and know that I am God.", "Psalm 46:10"),
     "crane-moon": ("He stilled the storm to a whisper; the waves of the sea "
                    "were hushed.", "Psalm 107:29"),
@@ -138,6 +131,32 @@ def verdict(b, m):
             "; ".join(fails + warns))
 
 
+def _regular(b):
+    return "special" not in b["tags"]
+
+
+def _day(b):
+    return _regular(b) and "night" not in b["tags"]
+
+
+def _night(b):
+    return _regular(b) and "night" in b["tags"]
+
+
+def prove_all_verses_fit():
+    """Every bundled verse must have at least one fitting day scene and one
+    fitting night scene. This matches firmware auto-pick behavior: it may choose
+    among many scenes, but it is not allowed to render a non-fitting one."""
+    failures = []
+    for label, pred in (("day", _day), ("night", _night)):
+        pool = [b for b in p.BGS if pred(b)]
+        for v in p.VERSES:
+            fits = [b["name"] for b in pool if p._fits(b, v["t"], v["r"])]
+            if not fits:
+                failures.append((label, v["i"], v["r"], v["t"]))
+    return failures
+
+
 def main():
     print(f"{'#':>2} {'name':18} {'stat':5} zoneI zoneF specks(k/h) "
           f"ink%  border  notes")
@@ -158,9 +177,23 @@ def main():
             os.path.join(REVIEW, f"{b['i']:02d}_{b['name']}_art.png"))
         if not b["tags"] or "night" in b["tags"] or "water" in b["tags"]:
             text, ref = SAMPLE.get(b["name"], DEFAULT)
-            unpack(p.render_verse(b, {"t": text, "r": ref})).save(
-                os.path.join(REVIEW, f"{b['i']:02d}_{b['name']}.png"))
+            try:
+                unpack(p.render_verse(b, {"t": text, "r": ref})).save(
+                    os.path.join(REVIEW, f"{b['i']:02d}_{b['name']}.png"))
+            except ValueError as e:
+                nfail += 1
+                print(f"   composite FAIL: {e}")
     print("-" * 92)
+    fit_failures = prove_all_verses_fit()
+    if fit_failures:
+        nfail += len(fit_failures)
+        print("FIT-ALL FAIL")
+        for label, i, ref, text in fit_failures[:20]:
+            print(f"  {label:5} verse {i:3} {ref}: {text[:90]}")
+        if len(fit_failures) > 20:
+            print(f"  ...and {len(fit_failures) - 20} more")
+    else:
+        print(f"FIT-ALL PASS  {len(p.VERSES)} verses have >=1 day and >=1 night fit")
     print(f"{len(p.BGS)} scenes  |  {nfail} FAIL  {nwarn} WARN  "
           f"->  previews: tools/previews/review/")
     return nfail

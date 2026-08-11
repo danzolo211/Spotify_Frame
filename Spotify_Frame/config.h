@@ -31,13 +31,14 @@ static const SpecialDate SPECIAL_DATES[] = {
 // ---------- behavior defaults (all changeable live in the app) ----------
 #define DEF_VERSE_MIN    20   // minutes between verses
 #define DEF_IDLE_MIN     3    // minutes of Spotify silence before verses return
-#define DEF_PROGRESS_S   20   // Now-Playing timer update seconds (0 = frozen).
+#define DEF_PROGRESS_S   10   // Now-Playing timer update seconds (0 = frozen).
                               // The elapsed time is interpolated locally between
                               // Spotify polls, so it stays truthful even though
-                              // the panel only repaints this often. Each update is
-                              // a full refresh (crisp digits, no e-ink ghosting)
-                              // with a brief flash, so it's floored to 20s to keep
-                              // flashing gentle. (Also changeable in Settings.)
+                              // the panel only repaints this often. Each update
+                              // cleans and repaints only the bottom strip through
+                              // white: crisp digits/bar, no full-screen flash.
+                              // Cadence is floored to 10s to keep blinking gentle.
+#define MIN_PROGRESS_S   10
 #define DEF_QUIET_START  23   // hour the screen goes still for the night
 #define DEF_QUIET_END    7
 
@@ -65,19 +66,20 @@ static const SpecialDate SPECIAL_DATES[] = {
 #define LYRIC_BAND_X    0
 #define LYRIC_BAND_Y    199
 #define LYRIC_BAND_W    400
-#define LYRIC_BAND_H    26
+#define LYRIC_BAND_H    36
 #define NP_BAR_STRIP_X  0
-#define NP_BAR_STRIP_Y  262
+#define NP_BAR_STRIP_Y  266
 #define NP_BAR_STRIP_W  400
 #define NP_BAR_STRIP_H  34
 
-#define LYRIC_MIN_GAP_MS        500      // min ms between lyric repaints (non-blocking skip)
+#define LYRIC_MIN_GAP_MS        900      // min ms between clean strip repaints
 #define LYRIC_FETCH_TIMEOUT_MS  8000     // body-read cap (matches the Spotify client;
                                          // 3s was too short to read a ~10KB TLS body and
                                          // the parse timed out -> "no lyrics")
 #define LYRIC_MAX_LINES         240      // hard bound on stored lines
 #define LYRIC_BUF_BYTES         12288    // PSRAM text buffer for one song's lyrics
-#define LYRIC_LEAD_MS           0        // tunable sync offset (negative = show earlier)
+#define DEF_LYRIC_LEAD_MS       1100     // paint this early so the e-ink transition
+                                         // finishes at the lyric timestamp
 #define LYRIC_MAX_TRIES         3        // fetch attempts before giving up (backoff)
 #define LYRIC_RETRY_MS          10000    // wait between failed fetch attempts
 #define LYRIC_USER_AGENT        "GraceFrame/1.0 (https://github.com/graceframe)"

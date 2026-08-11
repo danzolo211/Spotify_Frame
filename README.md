@@ -1,14 +1,14 @@
 # GraceFrame ✝
 
 An e-ink frame for the person you love. When she plays Spotify it shows her
-music — album art, title, progress. When the music stops, it quietly turns
-into Scripture: **120 of the best-loved NIV verses** over **15 hand-drawn,
+music — album art, title, progress, and live synced lyrics where available.
+When the music stops, it quietly turns into Scripture: **135 NIV verses** over **18 hand-drawn,
 postcard-style scenes** (three crosses at dawn, a shepherd's field, a moonlit
 starry night…), a new one every 20 minutes. Each verse is paired only with a
 scene that has room for it, so the words are always complete and razor-sharp.
 
 And it's hers to hold: a **phone app** (no App Store needed) shows a live
-mirror of the screen, lets her browse and search every verse, ❤ favorites
+mirror of the screen, lets her browse and search every verse, save favorites
 (they appear more often), pick scenes, and receive **notes** you send in
 handwriting — from her Wi-Fi *or from anywhere* (see “Send her a note from
 anywhere,” below).
@@ -33,7 +33,6 @@ tools/               <- asset pipeline (already run — outputs are committed)
   spotify_auth.py      preview_app.py
 WIRING.md            <- how to wire (do this first)
 README.md            <- you are here
-SpotifyFrame_unused/ <- your old sketch, kept as a backup
 ```
 
 Everything in `Spotify_Frame/data` and the fonts are **already generated** —
@@ -54,7 +53,8 @@ Follow **WIRING.md** (5 minutes, 8 wires).
 3. *Boards Manager* → install **esp32 by Espressif Systems**.
 4. *Library Manager* → install:
    **GxEPD2** · **Adafruit GFX Library** · **ArduinoJson** · **TJpg_Decoder**
-5. Install the LittleFS uploader (for step 6): download
+5. Optional if you use the IDE: install the LittleFS uploader (for step 6):
+   download
    `arduino-littlefs-upload-*.vsix` from
    https://github.com/earlephilhower/arduino-littlefs-upload/releases
    and drop it into `C:\Users\<you>\.arduinoIDE\plugins\`
@@ -68,14 +68,26 @@ Follow **WIRING.md** (5 minutes, 8 wires).
   so she never has to configure anything, and confirm the Spotify values (see §9
   — the refresh token must belong to the account whose music you want shown).
 
-## 5. Flash the firmware
+## 5. Flash the firmware and data
 
-Open `Spotify_Frame/Spotify_Frame.ino`. Select **Tools →**
+Recommended from PowerShell on this PC:
+
+```
+cd C:\Users\Daniel Weber\OneDrive\Desktop
+.\build_spotify_frame.ps1 -Upload -UploadData -Port COM6
+```
+
+That script pins a stable Arduino CLI, refuses to upload if compile fails, flashes
+the firmware, then rebuilds and uploads the LittleFS data image with the scenes,
+verses, and phone app.
+
+If you use Arduino IDE instead, open `Spotify_Frame/Spotify_Frame.ino`. Select
+**Tools →**
 - Board: **ESP32S3 Dev Module**
-- USB CDC On Boot: **Enabled**
+- USB CDC On Boot: **Default / Disabled**
 - PSRAM: **OPI PSRAM**
 - Flash Size: **16MB**
-- Partition Scheme: **8M with spiffs (3MB APP/1.5MB SPIFFS)**
+- Partition Scheme: **16M Flash (3MB APP/9.9MB FATFS)**
 - Port: your COM port
 
 Click **Upload**. (If upload won't start: hold the BOOT button, tap RESET,
@@ -83,7 +95,9 @@ release BOOT, retry.)
 
 ## 6. Upload the data (verses, scenes, app)
 
-With the sketch still open: press **Ctrl+Shift+P**, run
+The PowerShell command above already does this when you include `-UploadData`.
+
+In Arduino IDE, with the sketch still open: press **Ctrl+Shift+P**, run
 **“Upload LittleFS to Pico/ESP8266/ESP32”**. This copies `Spotify_Frame/data`
 onto the board (~1 MB, takes a minute). Close the Serial Monitor first —
 the uploader needs the port.
@@ -91,9 +105,11 @@ the uploader needs the port.
 ## 7. First light
 
 - The frame connects to Wi-Fi and shows its first verse. Play Spotify
-  anywhere on her account → the frame follows within ~5 seconds.
+  anywhere on her account → the frame follows within ~5 seconds. If synced
+  lyrics are available, one clean line appears under the album art.
 - If Wi-Fi fails it opens its own network **GraceFrame-Setup** — join it
-  with a phone and pick the home network (instructions appear on the panel).
+  with a phone and pick the home network. After credentials work, the panel
+  confirms the SSID, IP address, and `graceframe.local`.
 
 ## 8. Put the app on her phone
 
@@ -116,11 +132,13 @@ frame. When you're **not** — at your place, at work — use **`send-note.html`
 
 How it works: the frame quietly checks a **private channel** on the free
 [ntfy.sh](https://ntfy.sh) service; `send-note.html` posts to that same channel.
-The channel name is a shared secret defined once as `NOTES_TOPIC` in
-`Spotify_Frame/secrets.h` **and** at the top of `send-note.html` — they must match.
-To rotate it, put a new random value in both. (Notes pass through ntfy.sh's
-public relay, so keep them sweet, not secret.) Leave `NOTES_TOPIC` blank to turn
-the remote path off; the on-Wi-Fi Notes tab still works.
+The channel name is a shared secret defined as `NOTES_TOPIC` in the ignored
+`Spotify_Frame/secrets.h`. The QR generator reads it from there and puts it in
+your private `send-note.html?token=...` link. To rotate it, set a new random
+topic in `secrets.h`, rerun `python tools/make_qr.py`, and replace the private
+QR/link. Notes pass through ntfy.sh's public relay, so keep them sweet, not
+secret. Leave `NOTES_TOPIC` blank to turn the remote path off; the on-Wi-Fi
+Notes tab still works.
 
 Want to check the pipe is live? `python tools/test_remote_note.py` publishes a
 test note and confirms it comes back.
@@ -144,13 +162,16 @@ redirect URI `http://127.0.0.1:8888/callback`.)
 
 - A new song must **survive 2.5 s** before it's drawn — a skip-storm
   settles to a single refresh of the song she lands on.
-- Refreshes are hard-limited to one per 3 s.
+- Full-screen refreshes are hard-limited to one per 3 s. Lyric/timer strip
+  refreshes share a separate 900 ms gate so they can stay in sync without
+  hammering the panel.
 - Each **new song is a clean full refresh**, so the previous title/art is
-  wiped instead of ghosting under the next one. Only the small stuff — the
-  progress bar and the play/pause icon *within the same song* — uses gentle
-  partial refreshes.
+  wiped instead of ghosting under the next one. Within the same song, the lyric
+  line and progress strip use small white-to-content clean refreshes so the
+  whole screen does not flash on every lyric or timer update.
 - The elapsed time is **interpolated locally** between Spotify polls, so it
-  stays accurate without extra network calls; the bar repaints every ~30 s.
+  stays accurate without extra network calls; the bar repaints every 10 s by
+  default.
 - Verse changes are calm full refreshes every 20 min (~70/day — panels are
   rated for 1,000,000+).
 - During **quiet hours** the panel doesn't refresh at all; e-ink holds the

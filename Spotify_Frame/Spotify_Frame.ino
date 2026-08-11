@@ -15,7 +15,7 @@
 
    Libraries (Library Manager): GxEPD2, Adafruit GFX, ArduinoJson,
    TJpg_Decoder. Board: "ESP32S3 Dev Module", PSRAM: "OPI PSRAM",
-   Flash Size: 16MB, Partition: "8M with spiffs (3MB APP/1.5MB SPIFFS)".
+   Flash Size: 16MB, Partition: "16M Flash (3MB APP/9.9MB FATFS)".
    ===================================================================== */
 
 #include <Arduino.h>
@@ -45,6 +45,7 @@ static String pendingTrack = "";
 static uint32_t pendingSince = 0;
 static Track pendingInfo;
 static uint32_t lastBarPush = 0;
+static uint32_t lastCleanStripPush = 0;
 static bool artValid = false;
 static bool prevPlaying = false;
 // Live-lyric display tracker. lyrShownIdx: -3 = band blank, -4 = instrumental note,
@@ -88,27 +89,51 @@ static bool inQuietHours() {
 // Pick a background that actually has room for this verse. Tries a handful of
 // random (recent-avoiding) scenes; if none fit — a very long verse — it falls
 // back to the roomiest one it saw, so the words are never chopped off.
-static int pickBgFor(const String& text, bool night, const String& theme = "") {
+static bool bgFitsVerse(const Verse& v, int bg) {
+  if (bg < 0 || bg >= bgsCount()) return false;
+  const BgInfo& b = bgsGet(bg);
+  return renderVerseFits(v.text, v.ref, b.zw - 12, b.zh);
+}
+
+static int firstFittingBg(const Verse& v, bool night, const String& theme,
+                          bool requireTheme) {
+  int best = -1;
+  long bestCap = -1;
+  for (int i = 0; i < bgsCount(); i++) {
+    const BgInfo& b = bgsGet(i);
+    if (b.special) continue;
+    if (b.night != night) continue;
+    if (requireTheme && b.theme != theme) continue;
+    if (!bgFitsVerse(v, i)) continue;
+    long cap = (long)b.zw * b.zh;
+    if (cap > bestCap) { bestCap = cap; best = i; }
+  }
+  return best;
+}
+
+static int pickBgFor(const Verse& v, bool night, const String& theme = "") {
   // a themed verse (e.g. "water") first tries a matching scene that fits, so the
   // wave verses land on the wave scenes; otherwise the normal rotation runs.
   if (theme.length()) {
     for (int tries = 0; tries < 10; tries++) {
       int bg = bgsPickThemed(theme.c_str(), night);
       if (bg < 0) break;
-      const BgInfo& b = bgsGet(bg);
-      if (renderVerseFits(text, b.zw - 12, b.zh)) return bg;
+      if (bgFitsVerse(v, bg)) return bg;
     }
+    int fit = firstFittingBg(v, night, theme, true);
+    if (fit >= 0) return fit;
   }
-  int best = -1;
-  long bestCap = -1;
   for (int tries = 0; tries < 24; tries++) {
     int bg = bgsPickRandom(night);
-    const BgInfo& b = bgsGet(bg);
-    if (renderVerseFits(text, b.zw - 12, b.zh)) return bg;
-    long cap = (long)b.zw * b.zh;
-    if (cap > bestCap) { bestCap = cap; best = bg; }
+    if (bgFitsVerse(v, bg)) return bg;
   }
-  return best >= 0 ? best : bgsPickRandom(night);
+  int fit = firstFittingBg(v, night, "", false);
+  if (fit >= 0) return fit;
+  // Last-resort cross-polarity fallback: should never fire for the bundled data
+  // because audit_backgrounds.py proves both day and night pools have a fit.
+  for (int i = 0; i < bgsCount(); i++)
+    if (!bgsGet(i).special && bgFitsVerse(v, i)) return i;
+  return bgsPickRandom(night);
 }
 
 static void showRandomVerse(const String& cat = "", int forceBg = -1) {
@@ -117,7 +142,8 @@ static void showRandomVerse(const String& cat = "", int forceBg = -1) {
   if (id < 0) return;
   Verse v;
   if (!versesGet(id, v)) return;
-  int bg = (forceBg >= 0) ? forceBg : pickBgFor(v.text, isNightNow(), v.cat);
+  int bg = (forceBg >= 0 && bgFitsVerse(v, forceBg))
+             ? forceBg : pickBgFor(v, isNightNow(), v.cat);
   renderVerse(v, bg);
   epdPush(PUSH_FULL);
   app.mode = MODE_VERSE;
@@ -130,7 +156,8 @@ static void showRandomVerse(const String& cat = "", int forceBg = -1) {
 static void showVerseById(int id, int forceBg = -1) {
   Verse v;
   if (!versesGet(id, v)) return;
-  int bg = (forceBg >= 0) ? forceBg : pickBgFor(v.text, isNightNow(), v.cat);
+  int bg = (forceBg >= 0 && bgFitsVerse(v, forceBg))
+             ? forceBg : pickBgFor(v, isNightNow(), v.cat);
   renderVerse(v, bg);
   epdPush(PUSH_FULL);
   app.mode = MODE_VERSE;
@@ -168,6 +195,11 @@ static void drawSpotify() {
   renderSpotify(spotifyArtBits(), artValid);
 }
 
+static void drawSpotifyProgressStrip() {
+  app.trackProgress = liveProgressMs();
+  renderSpotifyProgressStrip();
+}
+
 static void commitTrack(const Track& t) {
   committedTrack = t.id;
   app.trackId = t.id;
@@ -191,10 +223,11 @@ static void commitTrack(const Track& t) {
   // Kick off the off-loop lyric fetch and align the on-screen tracker with the
   // just-set LOADING state (band is blank right now) so the first line renders
   // promptly and we never blink a blank-over-blank band.
-  lyricsOnNewTrack(t.title, t.artist, t.album, t.duration, t.id);
+  lyricsOnNewTrack(t.artist, t.title, t.album, t.duration, t.id);
   lyrShownState = LX_LOADING;
   lyrShownIdx = -3;
   lastLyricPush = millis();
+  lastCleanStripPush = lastLyricPush;
 }
 
 static void spotifyTick() {
@@ -225,27 +258,22 @@ static void spotifyTick() {
 
     if (showingThis) {
       // Same song already on the panel. Every timer/icon update is a full
-      // refresh: the digits stay razor-sharp with no e-ink partial-refresh
-      // softening or ghosting, at the cost of a brief flash. The elapsed time is
-      // interpolated locally, so it's correct even though we repaint gently.
+      // refresh for play/pause, while the timer/bar below use the same clean
+      // white->content strip repaint as lyrics: crisp changed pixels without a
+      // full-screen flash. The elapsed time is interpolated locally, so it stays
+      // correct between Spotify polls.
       if (t.playing != prevPlaying) {                 // play <-> pause
         prevPlaying = t.playing;
         drawSpotify();
         epdPush(PUSH_FULL);
-        lastBarPush = millis();
+        lastCleanStripPush = lastBarPush = millis();
       } else if (t.playing && settings.progressS > 0) {
-        uint16_t everyS = settings.progressS < 20 ? 20 : settings.progressS;
+        uint16_t everyS = settings.progressS < MIN_PROGRESS_S
+                            ? MIN_PROGRESS_S : settings.progressS;
         if (millis() - lastBarPush >= everyS * 1000UL) {
-          drawSpotify();
-          // With lyrics on, the frequent timer tick must not flash the whole
-          // screen: repaint just the bottom bar+times strip through white (crisp
-          // digits, a blink confined to that strip). Lyrics off keeps the original
-          // full-refresh timer behaviour exactly.
-          if (settings.lyricsOn)
-            epdPushLyric(NP_BAR_STRIP_X, NP_BAR_STRIP_Y, NP_BAR_STRIP_W, NP_BAR_STRIP_H);
-          else
-            epdPush(PUSH_FULL);
-          lastBarPush = millis();
+          drawSpotifyProgressStrip();
+          epdPushLyric(NP_BAR_STRIP_X, NP_BAR_STRIP_Y, NP_BAR_STRIP_W, NP_BAR_STRIP_H);
+          lastCleanStripPush = lastBarPush = millis();
         }
       }
     } else if (t.playing && !app.note.active) {
@@ -300,7 +328,20 @@ static void spotifyTick() {
 // tick, so pause freezes it, a seek jumps straight to the right line, and if
 // clean-refreshes fall behind fast lines it always converges on the current one.
 static void lyricsTick() {
-  if (!settings.lyricsOn) return;
+  bool stripReady = (lastCleanStripPush == 0 ||
+                     millis() - lastCleanStripPush >= LYRIC_MIN_GAP_MS);
+  if (!settings.lyricsOn) {
+    if (app.mode == MODE_SPOTIFY &&
+        (lyrShownIdx >= 0 || lyrShownState == LX_INSTRUMENTAL) && stripReady) {
+      renderSetLyric("", false);
+      renderLyricBand();
+      epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
+      lastCleanStripPush = lastLyricPush = millis();
+      lyrShownIdx = -3;
+      lyrShownState = LX_NONE;
+    }
+    return;
+  }
   lyricsPoll();   // runs a due fetch once per song; bounded (stops on the first
                   // unreachable request) so it can't freeze the loop for long
 
@@ -311,40 +352,47 @@ static void lyricsTick() {
   // Fetch result just changed -> settle the band once for the new state.
   if (st != lyrShownState) {
     int prev = lyrShownState;
-    lyrShownState = st;
     if (st == LX_INSTRUMENTAL) {
+      if (!stripReady) return;
+      lyrShownState = st;
       renderSetLyric("", true);
       renderLyricBand();
       epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
-      lastLyricPush = millis();
+      lastCleanStripPush = lastLyricPush = millis();
       lyrShownIdx = -4;                       // note shown
       return;
     }
     if (st != LX_READY) {                     // LOADING / UNAVAILABLE / NONE -> blank
       if (lyrShownIdx >= 0 || prev == LX_INSTRUMENTAL) {   // only if it wasn't already blank
+        if (!stripReady) return;
+        lyrShownState = st;
         renderSetLyric("", false);
         renderLyricBand();
         epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
-        lastLyricPush = millis();
+        lastCleanStripPush = lastLyricPush = millis();
+      } else {
+        lyrShownState = st;
       }
       lyrShownIdx = -3;
       return;
     }
+    lyrShownState = st;
     lyrShownIdx = -3;                         // READY: force the current line to draw below
   }
 
   if (st != LX_READY || !app.trackPlaying) return;
 
-  long pos = liveProgressMs() + LYRIC_LEAD_MS;
+  long pos = liveProgressMs() + settings.lyricLeadMs;
   if (pos < 0) pos = 0;
   int idx = lyricsActiveIndex((uint32_t)pos);
   int want = (idx < 0) ? -3 : idx;           // before the first line -> blank sentinel
-  if (want != lyrShownIdx && (millis() - lastLyricPush) >= LYRIC_MIN_GAP_MS) {
+  if (want != lyrShownIdx && stripReady &&
+      (millis() - lastLyricPush) >= LYRIC_MIN_GAP_MS) {
     lyrShownIdx = want;
     renderSetLyric(idx >= 0 ? String(lyricsText(idx)) : String(""), false);
     renderLyricBand();
     epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
-    lastLyricPush = millis();
+    lastCleanStripPush = lastLyricPush = millis();
   }
 }
 
@@ -413,7 +461,7 @@ static void quietTick() {
     int id = versesPickRandom("peace");
     Verse v;
     if (id >= 0 && versesGet(id, v)) {
-      int bg = pickBgFor(v.text, true);
+      int bg = pickBgFor(v, true);
       renderVerse(v, bg);
       epdPush(PUSH_FULL);
       app.mode = MODE_VERSE;
@@ -561,6 +609,10 @@ void setup() {
   assetsOk = v && b;
 
   if (!netConnect()) netPortal();   // portal blocks + restarts
+  renderConnected(WiFi.SSID(), WiFi.localIP().toString(),
+                  String("http://") + MDNS_NAME + ".local");
+  epdPush(PUSH_FULL);
+  delay(1800);
   netTimeMdns();
   spotifyBegin();
   lyricsBegin();

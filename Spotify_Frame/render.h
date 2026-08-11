@@ -8,8 +8,9 @@ void renderInit();
 void renderVerse(const Verse& v, int bgId);
 // true if the verse wraps cleanly into a zone this size (no hard-truncation),
 // so the bg picker can keep long verses off the small-canvas scenes
-bool renderVerseFits(const String& text, int zw, int zh);
+bool renderVerseFits(const String& text, const String& ref, int zw, int zh);
 void renderSpotify(const uint8_t* artBits, bool artValid);
+void renderSpotifyProgressStrip();
 
 // Live lyric line for the Now-Playing screen. renderSetLyric stores the current
 // line (empty = blank band; instrumental = a small centered note); renderSpotify
@@ -21,3 +22,4 @@ void renderNote(const String& text, const String& from);
 void renderSpecial(const char* title, const char* msg, const String& forName);
 void renderMessage(const String& l1, const String& l2 = "");
 void renderSetup(const String& apName, const String& url);
+void renderConnected(const String& ssid, const String& ip, const String& host);

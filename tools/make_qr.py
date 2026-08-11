@@ -6,7 +6,7 @@
                                                             network)
 
 The remote QR MUST carry the private note token or the sender page disables
-itself. We read the token straight from GraceFrame/secrets.h (NOTES_TOPIC) so
+itself. We read the token straight from Spotify_Frame/secrets.h (NOTES_TOPIC) so
 the QR can never drift out of sync with what the frame listens on.
 
 Run:  python tools/make_qr.py
@@ -34,7 +34,7 @@ def read_notes_topic():
     except FileNotFoundError:
         m = None
     if not m or not m.group(1):
-        sys.exit("Could not read NOTES_TOPIC from GraceFrame/secrets.h — the "
+        sys.exit("Could not read NOTES_TOPIC from Spotify_Frame/secrets.h — the "
                  "remote QR needs it. Set NOTES_TOPIC and re-run.")
     return m.group(1)
 

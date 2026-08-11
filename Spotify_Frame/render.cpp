@@ -44,6 +44,17 @@ static void drawCentered(const GFXfont* f, const String& s, int cx, int baseline
   canvas.print(s);
 }
 
+static bool centeredTextFits(const GFXfont* f, const String& s, int cx,
+                             int baseline, int zw, int zh) {
+  int16_t x1, y1;
+  uint16_t w, h;
+  canvas.setFont(f);
+  canvas.getTextBounds(s, 0, baseline, &x1, &y1, &w, &h);
+  int x = cx - (int)w / 2 - x1;
+  canvas.getTextBounds(s, x, baseline, &x1, &y1, &w, &h);
+  return x1 >= 0 && y1 >= 0 && x1 + (int)w <= zw && y1 + (int)h <= zh;
+}
+
 // greedy word wrap; returns line count or -1 if it doesn't fit
 static int wrapText(const String& text, const GFXfont* f, int maxW,
                     String* lines, int maxLines) {
@@ -83,6 +94,38 @@ static String fitEllipsis(const GFXfont* f, String s, int maxW) {
   return s;
 }
 
+static int wrapTwoLineLyric(const String& text, String* out, int maxW) {
+  out[0] = "";
+  out[1] = "";
+  int line = 0;
+  int start = 0;
+  while (start <= (int)text.length()) {
+    int sp = text.indexOf(' ', start);
+    String word = (sp < 0) ? text.substring(start) : text.substring(start, sp);
+    start = (sp < 0) ? text.length() + 1 : sp + 1;
+    if (!word.length()) continue;
+    String tryLine = out[line].length() ? out[line] + " " + word : word;
+    if (textWidth(&SansSmall, tryLine) <= maxW) {
+      out[line] = tryLine;
+      continue;
+    }
+    if (line == 0 && out[0].length()) {
+      line = 1;
+      out[1] = textWidth(&SansSmall, word) <= maxW
+                 ? word : fitEllipsis(&SansSmall, word, maxW);
+      continue;
+    }
+    if (line == 0) {
+      out[0] = fitEllipsis(&SansSmall, word, maxW);
+      line = 1;
+      continue;
+    }
+    out[1] = fitEllipsis(&SansSmall, tryLine, maxW);
+    return out[0].length() ? 2 : 1;
+  }
+  return out[1].length() ? 2 : (out[0].length() ? 1 : 0);
+}
+
 static void diamond(int cx, int cy, int r, uint16_t color) {
   canvas.fillTriangle(cx - r, cy, cx, cy - r, cx + r, cy, color);
   canvas.fillTriangle(cx - r, cy, cx, cy + r, cx + r, cy, color);
@@ -92,6 +135,24 @@ static void heart(int cx, int cy, int s, uint16_t color) {
   canvas.fillCircle(cx - s / 2, cy - s / 4, s / 2, color);
   canvas.fillCircle(cx + s / 2, cy - s / 4, s / 2, color);
   canvas.fillTriangle(cx - s, cy, cx + s, cy, cx, cy + s, color);
+}
+
+static bool verseLayoutFits(const GFXfont* f, String* lines, int nLines,
+                            const String& ref, int zw, int zh) {
+  const int refBlock = SerifRefIt.yAdvance + 8;
+  int block = nLines * f->yAdvance + 8 + refBlock;
+  if (block > zh) return false;
+  int top = (zh - block) / 2;
+  if (top < 0) top = 0;
+  int cx = zw / 2;
+  int ascent = (int)(f->yAdvance * 0.72);
+  for (int i = 0; i < nLines; i++) {
+    int baseline = top + i * f->yAdvance + ascent;
+    if (!centeredTextFits(f, lines[i], cx, baseline, zw, zh)) return false;
+  }
+  int refY = top + nLines * f->yAdvance + 8
+             + (int)(SerifRefIt.yAdvance * 0.72);
+  return centeredTextFits(&SerifRefIt, ref, cx, refY, zw, zh);
 }
 
 // ---------------------------------------------------------------- verse
@@ -123,17 +184,17 @@ void renderVerse(const Verse& v, int bgId) {
     if (maxLines < 1) continue;
     if (maxLines > MAX_LINES) maxLines = MAX_LINES;
     int n = wrapText(text, f, zw, lines, maxLines);
-    if (n > 0) { font = f; nLines = n; lineH = lh; break; }
-  }
-  if (nLines == 0) {   // extreme fallback: hard-truncate in the small serif
-    font = &SerifIt;
-    lineH = SerifIt.yAdvance;
-    int maxLines = max(1, (zh - refBlock - 4) / lineH);
-    while (nLines <= 0 && text.length() > 8) {
-      text.remove(text.length() - 8);
-      nLines = wrapText(text + "...", font, zw, lines, min(maxLines, MAX_LINES));
+    if (n > 0 && verseLayoutFits(f, lines, n, v.ref, zw, zh)) {
+      font = f; nLines = n; lineH = lh; break;
     }
-    if (nLines <= 0) { lines[0] = "..."; nLines = 1; }
+  }
+  if (nLines == 0) {
+    // Bundled verses are proved by tools/audit_backgrounds.py. If a future verse
+    // is added without running the audit, fail visibly instead of cutting text.
+    font = &SansSmall;
+    lineH = SansSmall.yAdvance;
+    lines[0] = "Verse too long for this scene";
+    nLines = 1;
   }
 
   int block = nLines * lineH + 8 + refBlock;
@@ -148,19 +209,28 @@ void renderVerse(const Verse& v, int bgId) {
   uint16_t rw = textWidth(&SerifRefIt, v.ref);
   drawCentered(&SerifRefIt, v.ref, cx, refY, ink);
   int ly = refY - 4;
-  canvas.drawFastHLine(cx - rw / 2 - 38, ly, 24, ink);
-  canvas.drawFastHLine(cx + rw / 2 + 14, ly, 24, ink);
-  diamond(cx - rw / 2 - 9, ly, 3, ink);
-  diamond(cx + rw / 2 + 9, ly, 3, ink);
+  int leftEnd = cx - (int)rw / 2 - 14;
+  int rightStart = cx + (int)rw / 2 + 14;
+  if (leftEnd - zx >= 12) {
+    int leftStart = max(zx, leftEnd - 24);
+    canvas.drawFastHLine(leftStart, ly, leftEnd - leftStart, ink);
+    diamond(leftEnd + 5, ly, 3, ink);
+  }
+  if (zx + zw - rightStart >= 12) {
+    int rightEnd = min(zx + zw, rightStart + 24);
+    canvas.drawFastHLine(rightStart, ly, rightEnd - rightStart, ink);
+    diamond(rightStart - 5, ly, 3, ink);
+  }
 }
 
 // Does this verse fit a text zone of (zw x zh) using the same font chain and
 // word-wrap the real renderer uses? (mirrors the loop in renderVerse). Lets the
 // firmware pair long verses only with roomy backgrounds instead of truncating.
-bool renderVerseFits(const String& text0, int zw, int zh) {
+bool renderVerseFits(const String& text0, const String& ref, int zw, int zh) {
   String text = text0;
   if (ADD_QUOTES && !text.startsWith("\"")) text = "\"" + text + "\"";
   const int refBlock = SerifRefIt.yAdvance + 8;
+  if (textWidth(&SerifRefIt, ref) > zw) return false;
   static const GFXfont* chain[] = { &ScriptLg, &ScriptMd, &ScriptSm, &SerifIt };
   String lines[MAX_LINES];
   for (const GFXfont* f : chain) {
@@ -168,7 +238,8 @@ bool renderVerseFits(const String& text0, int zw, int zh) {
     int maxLines = (zh - refBlock - 4) / lh;
     if (maxLines < 1) continue;
     if (maxLines > MAX_LINES) maxLines = MAX_LINES;
-    if (wrapText(text, f, zw, lines, maxLines) > 0) return true;
+    int n = wrapText(text, f, zw, lines, maxLines);
+    if (n > 0 && verseLayoutFits(f, lines, n, ref, zw, zh)) return true;
   }
   return false;
 }
@@ -213,12 +284,47 @@ static void lyricNote(int cx, int cy) {
 void renderLyricBand() {
   canvas.fillRect(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H, PAPER);
   if (!settings.lyricsOn) return;                 // lyrics off -> band stays blank
-  if (g_lyricInstrumental) { lyricNote(SCREEN_W / 2, LYRIC_BAND_Y + 10); return; }
+  if (g_lyricInstrumental) { lyricNote(SCREEN_W / 2, LYRIC_BAND_Y + 17); return; }
   String s = utf8ToLatin1(g_lyric);
   s.trim();
   if (!s.length()) return;                          // blank band (interlude / no line yet)
-  s = fitEllipsis(&SansMed, s, LYRIC_BAND_W - 32);
-  drawCentered(&SansMed, s, SCREEN_W / 2, LYRIC_BAND_Y + 19, INK);
+  const int maxW = LYRIC_BAND_W - 24;
+  if (textWidth(&SansMed, s) <= maxW) {
+    drawCentered(&SansMed, s, SCREEN_W / 2, LYRIC_BAND_Y + 24, INK);
+    return;
+  }
+  if (textWidth(&SansSmall, s) <= maxW) {
+    drawCentered(&SansSmall, s, SCREEN_W / 2, LYRIC_BAND_Y + 24, INK);
+    return;
+  }
+  String lines[2];
+  int n = wrapTwoLineLyric(s, lines, maxW);
+  if (n <= 0) return;
+  drawCentered(&SansSmall, lines[0], SCREEN_W / 2, LYRIC_BAND_Y + 15, INK);
+  if (n > 1)
+    drawCentered(&SansSmall, lines[1], SCREEN_W / 2, LYRIC_BAND_Y + 32, INK);
+}
+
+static const int BAR_L = 18, BAR_R = 382, BAR_Y = 267, BAR_H = 12;
+static const int TIME_BASELINE = BAR_Y + BAR_H + 16;
+
+void renderSpotifyProgressStrip() {
+  canvas.fillRect(NP_BAR_STRIP_X, NP_BAR_STRIP_Y,
+                  NP_BAR_STRIP_W, NP_BAR_STRIP_H, PAPER);
+  float frac = app.trackDuration > 0
+               ? (float)app.trackProgress / app.trackDuration : 0;
+  frac = constrain(frac, 0.0f, 1.0f);
+  canvas.drawRoundRect(BAR_L, BAR_Y, BAR_R - BAR_L, BAR_H, BAR_H / 2, INK);
+  int fw = (int)((BAR_R - BAR_L - 4) * frac);
+  if (fw > 2)
+    canvas.fillRoundRect(BAR_L + 2, BAR_Y + 2, fw, BAR_H - 4, (BAR_H - 4) / 2, INK);
+  canvas.setFont(&SansSmall);
+  canvas.setTextColor(INK);
+  canvas.setCursor(BAR_L, TIME_BASELINE);
+  canvas.print(mmss(app.trackProgress));
+  String dur = mmss(app.trackDuration);
+  canvas.setCursor(BAR_R - textWidth(&SansSmall, dur), TIME_BASELINE);
+  canvas.print(dur);
 }
 
 void renderSpotify(const uint8_t* artBits, bool artValid) {
@@ -263,36 +369,23 @@ void renderSpotify(const uint8_t* artBits, bool artValid) {
   canvas.print(fitEllipsis(&SansMed, artist, TW));
 
   // transport row
-  int cy = 244, cxp = 200;
+  int cy = 249, cxp = 200;
   // prev / next (decorative, mirrors her phone)
-  canvas.fillTriangle(160, cy, 172, cy - 8, 172, cy + 8, INK);
-  canvas.fillRect(156, cy - 8, 3, 16, INK);
-  canvas.fillTriangle(240, cy, 228, cy - 8, 228, cy + 8, INK);
-  canvas.fillRect(242, cy - 8, 3, 16, INK);
-  canvas.drawCircle(cxp, cy, 17, INK);
-  canvas.drawCircle(cxp, cy, 16, INK);
+  canvas.fillTriangle(160, cy, 170, cy - 7, 170, cy + 7, INK);
+  canvas.fillRect(156, cy - 7, 3, 14, INK);
+  canvas.fillTriangle(240, cy, 230, cy - 7, 230, cy + 7, INK);
+  canvas.fillRect(242, cy - 7, 3, 14, INK);
+  canvas.drawCircle(cxp, cy, 14, INK);
+  canvas.drawCircle(cxp, cy, 13, INK);
   if (app.trackPlaying) {
-    canvas.fillRect(cxp - 6, cy - 7, 4, 14, INK);
-    canvas.fillRect(cxp + 2, cy - 7, 4, 14, INK);
+    canvas.fillRect(cxp - 5, cy - 6, 3, 12, INK);
+    canvas.fillRect(cxp + 2, cy - 6, 3, 12, INK);
   } else {
-    canvas.fillTriangle(cxp - 4, cy - 7, cxp - 4, cy + 7, cxp + 8, cy, INK);
+    canvas.fillTriangle(cxp - 4, cy - 6, cxp - 4, cy + 6, cxp + 7, cy, INK);
   }
 
   // progress bar + times
-  const int barL = 18, barR = 382, barY = 263, barH = 12;
-  float frac = app.trackDuration > 0
-               ? (float)app.trackProgress / app.trackDuration : 0;
-  frac = constrain(frac, 0.0f, 1.0f);
-  canvas.drawRoundRect(barL, barY, barR - barL, barH, barH / 2, INK);
-  int fw = (int)((barR - barL - 4) * frac);
-  if (fw > 2)
-    canvas.fillRoundRect(barL + 2, barY + 2, fw, barH - 4, (barH - 4) / 2, INK);
-  canvas.setFont(&SansSmall);
-  canvas.setCursor(barL, barY + barH + 16);
-  canvas.print(mmss(app.trackProgress));
-  String dur = mmss(app.trackDuration);
-  canvas.setCursor(barR - textWidth(&SansSmall, dur), barY + barH + 16);
-  canvas.print(dur);
+  renderSpotifyProgressStrip();
 
   // live lyric line (drawn last; disjoint band, so order is immaterial)
   renderLyricBand();
@@ -311,7 +404,9 @@ void renderNote(const String& text, const String& from) {
   letterSpaced(&SansSmall, "A NOTE FOR YOU", cx - 66, zy + 10, 3, INK);
 
   String body = utf8ToLatin1(text);
-  static const GFXfont* chain[] = { &ScriptLg, &ScriptMd, &ScriptSm, &SerifIt };
+  static const GFXfont* chain[] = {
+    &ScriptLg, &ScriptMd, &ScriptSm, &SerifIt, &SansSmall
+  };
   String lines[MAX_LINES];
   const GFXfont* font = &SerifIt;
   int nLines = 0, lineH = SerifIt.yAdvance;
@@ -323,8 +418,8 @@ void renderNote(const String& text, const String& from) {
     if (n > 0) { font = f; nLines = n; lineH = f->yAdvance; break; }
   }
   if (nLines == 0) {   // longer than the whole chain: fill the zone with the
-    font = &SerifIt;   // smallest font and ellipsize, rather than collapsing a
-    lineH = SerifIt.yAdvance;                       // whole note to one "..." line
+    font = &SansSmall; // smallest font and ellipsize, rather than collapsing a
+    lineH = SansSmall.yAdvance;                     // whole note to one "..." line
     int maxLines = max(1, (zh - 26 - fromBlock) / lineH);
     if (maxLines > MAX_LINES) maxLines = MAX_LINES;
     String t = body;
@@ -332,7 +427,7 @@ void renderNote(const String& text, const String& from) {
       t.remove(t.length() - 8);
       nLines = wrapText(t + "...", font, zw, lines, maxLines);
     }
-    if (nLines <= 0) { lines[0] = fitEllipsis(&SerifIt, body, zw); nLines = 1; }
+    if (nLines <= 0) { lines[0] = fitEllipsis(&SansSmall, body, zw); nLines = 1; }
   }
 
   int block = nLines * lineH + fromBlock;
@@ -408,4 +503,15 @@ void renderSetup(const String& apName, const String& url) {
   drawCentered(&SansMed, "2. A setup page will open (or visit " + url + ")",
                SCREEN_W / 2, 218, INK);
   drawCentered(&SansMed, "3. Choose your home Wi-Fi and save", SCREEN_W / 2, 246, INK);
+}
+
+void renderConnected(const String& ssid, const String& ip, const String& host) {
+  canvas.fillScreen(PAPER);
+  drawCentered(&ScriptLg, "GraceFrame is online", SCREEN_W / 2, 62, INK);
+  canvas.drawFastHLine(70, 82, 260, INK);
+  drawCentered(&SansBold, "Connected to Wi-Fi", SCREEN_W / 2, 122, INK);
+  drawCentered(&SansMed, fitEllipsis(&SansMed, ssid, 330), SCREEN_W / 2, 154, INK);
+  drawCentered(&SansMed, ip, SCREEN_W / 2, 190, INK);
+  drawCentered(&SansMed, host, SCREEN_W / 2, 222, INK);
+  drawCentered(&ScriptSm, "Ready for Emily", SCREEN_W / 2, 270, INK);
 }

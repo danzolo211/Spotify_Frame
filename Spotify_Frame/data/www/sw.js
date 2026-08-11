@@ -1,5 +1,5 @@
 // GraceFrame service worker — cache the shell, never the live API.
-const CACHE = "graceframe-v1";
+const CACHE = "graceframe-v6";
 const SHELL = ["/", "/icon.png", "/icon-512.png", "/manifest.json"];
 
 self.addEventListener("install", (e) => {
@@ -8,7 +8,11 @@ self.addEventListener("install", (e) => {
 });
 
 self.addEventListener("activate", (e) => {
-  e.waitUntil(self.clients.claim());
+  e.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+  );
 });
 
 self.addEventListener("fetch", (e) => {

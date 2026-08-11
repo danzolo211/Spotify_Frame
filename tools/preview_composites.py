@@ -17,19 +17,14 @@ def unpack(buf):
 
 
 SAMPLES = [
-    ("golgotha-dawn", "He was pierced for our transgressions, he was crushed "
-     "for our iniquities.", "Isaiah 53:5"),
+    ("golgotha-dawn", "By his wounds we are healed.", "Isaiah 53:5"),
     ("empty-tomb", "He is not here; he has risen, just as he said.",
      "Matthew 28:6"),
     ("shepherd", "The Lord is my shepherd, I lack nothing.", "Psalm 23:1"),
-    ("still-waters", "He leads me beside quiet waters, he refreshes my soul.",
-     "Psalm 23:2-3"),
-    ("dove-descending", "The Spirit of God was hovering over the waters.",
+    ("still-waters", "He leads me beside quiet waters.", "Psalm 23:2"),
+    ("dove-ascending", "The Spirit of God was hovering over the waters.",
      "Genesis 1:2"),
-    ("wheat-field", "The harvest is plentiful but the workers are few.",
-     "Matthew 9:37"),
-    ("lighthouse", "The Lord is my light and my salvation - whom shall I fear?",
-     "Psalm 27:1"),
+    ("lighthouse", "The Lord is my light and my salvation.", "Psalm 27:1"),
     ("open-book", "Your word is a lamp for my feet, a light on my path.",
      "Psalm 119:105"),
     ("sailboat-dawn", "He got up, rebuked the wind and said, 'Quiet! Be still!'",
@@ -39,6 +34,10 @@ SAMPLES = [
      "each by name.", "Psalm 147:4"),
     ("moonlit-hills", "I lift up my eyes to the mountains - where does my help "
      "come from?", "Psalm 121:1"),
+    ("great-wave", "When its waves mount up, you still them.", "Psalm 89:9"),
+    ("fuji-serene", "Be still, and know that I am God.", "Psalm 46:10"),
+    ("crane-moon", "He stilled the storm to a whisper; the waves of the sea "
+     "were hushed.", "Psalm 107:29"),
 ]
 
 cols, tw, th = 3, 400, 300

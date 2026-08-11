@@ -10,6 +10,8 @@ Design language (this is the whole point):
     suggested with deliberate engraved strokes (even hatching, ruled water,
     ray lines) — never with scattered dots.
   * Bold silhouettes for the subject, airy contour lines for distance.
+  * Suns are quiet complete circles, never partial ray fans or black-dot
+    medallions; the tiny screen reads simple celestial symbols best.
   * Every scene reserves a "text canvas" — an unobstructed rectangle where the
     firmware sets the verse, so the words always land on clean paper.
 
@@ -149,6 +151,16 @@ def sun_solid(c, x, y, r, val=INK):
     disc(c, x, y, r, val)
 
 
+def sun_plain(c, x, y, r=12, val=INK, w=1.6, rays=14, r1=None):
+    """A quiet complete sun: open center, uniform full-circle rays, no black dot."""
+    r1 = r1 if r1 else r + 14
+    for i in range(rays):
+        a = math.radians(i * 360 / rays)
+        line(c, (x + (r + 4) * math.cos(a), y + (r + 4) * math.sin(a)),
+             (x + r1 * math.cos(a), y + r1 * math.sin(a)), 1.0, val)
+    ring(c, x, y, r, w, val)
+
+
 def sun_lined(c, x, y, r, rays=18, r1=None, w=1.6, val=INK, a0=0, a1=360):
     """A tidy sun: a solid core, a slim halo ring, and evenly spaced rays that
     alternate long/short so it reads as a warm sunburst — not a spiky asterisk."""
@@ -162,6 +174,11 @@ def sun_lined(c, x, y, r, rays=18, r1=None, w=1.6, val=INK, a0=0, a1=360):
              (x + rr * math.cos(a), y + rr * math.sin(a)), w, val)
     ring(c, x, y, r, w=max(1.4, w), val=val)
     disc(c, x, y, r * 0.55, val)
+
+
+def sun_medallion(c, x, y, r=13, rays=18, r1=None, val=INK):
+    """Compatibility wrapper for older scene calls: now a plain complete sun."""
+    sun_plain(c, x, y, r + 2, val=val, w=1.6, rays=rays, r1=r1)
 
 
 # ---- ground / water / hatch ------------------------------------
@@ -272,12 +289,40 @@ def stars(c, n, zone=None, y0=6, y1=H, x0=6, x1=W - 6, vmin=200):
         line(c, (x, y - 3.5), (x, y + 3.5), 1.0, 255)
 
 
+def _local(cx, cy, s_, deg, px, py):
+    a = math.radians(deg)
+    ca, sa = math.cos(a), math.sin(a)
+    return (cx + s_ * (px * ca - py * sa),
+            cy + s_ * (px * sa + py * ca))
+
+
+def gull(c, x, y, s_, deg=0, w=1.4, val=INK):
+    """Tiny distant gull: a shaped body plus two swept wing strokes. The old
+    double-arc shorthand read like stray marks; this stays bird-like at 1-bit."""
+    body = [_local(x, y, s_, deg, -0.18, 0.02),
+            _local(x, y, s_, deg, 0.02, -0.06),
+            _local(x, y, s_, deg, 0.24, 0.02),
+            _local(x, y, s_, deg, 0.02, 0.10)]
+    fill(c, body, val)
+    left = [_local(x, y, s_, deg, -0.03, -0.01),
+            _local(x, y, s_, deg, -0.45, -0.20),
+            _local(x, y, s_, deg, -0.86, -0.34)]
+    right = [_local(x, y, s_, deg, 0.07, -0.02),
+             _local(x, y, s_, deg, 0.46, -0.18),
+             _local(x, y, s_, deg, 0.84, -0.30)]
+    stroke(c, smooth(left, 8), w, val)
+    stroke(c, smooth(right, 8), w, val)
+    tail = [_local(x, y, s_, deg, -0.22, 0.04),
+            _local(x, y, s_, deg, -0.48, 0.12)]
+    stroke(c, tail, max(0.9, w * 0.75), val)
+
+
 def birds(c, pts, s_=5, w=1.3, val=INK):
-    for (x, y) in pts:
-        c.d.arc([S * (x - s_), S * (y - s_ * 0.7), S * x, S * (y + s_ * 0.7)],
-                200, 335, fill=val, width=max(1, int(w * S)))
-        c.d.arc([S * x, S * (y - s_ * 0.7), S * (x + s_), S * (y + s_ * 0.7)],
-                205, 340, fill=val, width=max(1, int(w * S)))
+    for p in pts:
+        x, y = p[0], p[1]
+        ss = p[2] if len(p) > 2 else s_
+        deg = p[3] if len(p) > 3 else 0
+        gull(c, x, y, ss, deg, w, val)
 
 
 # ---------------------------------------------------------------- subjects
@@ -304,18 +349,34 @@ def pine(c, x, base, h, w=0.34, val=INK):
 
 
 def tree_round(c, x, base, h, val=INK):
-    """A clean broadleaf tree: a slim trunk under a single full, gently scalloped
-    canopy (a smooth closed curve, not a pile of lumpy discs)."""
-    line(c, (x, base), (x, base - h * 0.46), max(1.6, h * 0.07), val)
-    cx, cy, rw, rh = x, base - h * 0.66, h * 0.40, h * 0.42
+    """A clean broadleaf tree with a visible trunk and a readable leafy crown."""
+    trunk_w = max(2.2, h * 0.10)
+    fill(c, [(x - trunk_w / 2, base), (x - trunk_w / 2, base - h * 0.42),
+             (x + trunk_w / 2, base - h * 0.42), (x + trunk_w / 2, base)], val)
+    cx, cy, rw, rh = x, base - h * 0.68, h * 0.36, h * 0.35
     canopy = []
-    bumps = 11
+    bumps = 13
     for i in range(bumps):
         a = -math.pi / 2 + 2 * math.pi * i / bumps
-        # a gentle scallop on the radius so the crown reads as leaves, not a ball
-        rr = 1.0 + 0.09 * math.sin(a * 5)
+        rr = 1.0 + 0.12 * math.sin(a * 6)
         canopy.append((cx + rw * rr * math.cos(a), cy + rh * rr * math.sin(a)))
     fill(c, smooth(canopy + [canopy[0]], 10), val)
+
+
+def classic_tree(c, x, base, h, val=INK):
+    """Small storybook tree: trunk first, then a distinct leafy top."""
+    paper = PAPER if val == INK else INK
+    trunk_w = max(2.0, h * 0.12)
+    fill(c, [(x - trunk_w / 2, base), (x - trunk_w / 2, base - h * 0.42),
+             (x + trunk_w / 2, base - h * 0.42), (x + trunk_w / 2, base)], val)
+    crown = smooth([(x, base - h * 0.92), (x - h * 0.28, base - h * 0.76),
+                    (x - h * 0.38, base - h * 0.54), (x - h * 0.18, base - h * 0.42),
+                    (x, base - h * 0.48), (x + h * 0.18, base - h * 0.42),
+                    (x + h * 0.38, base - h * 0.54), (x + h * 0.28, base - h * 0.76),
+                    (x, base - h * 0.92)], 10)
+    fill(c, crown, val)
+    if h >= 34:
+        line(c, (x, base - h * 0.83), (x, base - h * 0.52), 0.8, paper)
 
 
 def sheep(c, x, y, s_, val=INK):
@@ -362,17 +423,29 @@ def shepherd(c, x, base, h, val=INK):
 
 
 def lighthouse(c, x, base, h, val=INK):
-    w0, w1 = h * 0.19, h * 0.11
-    fill(c, [(x - w0 / 2, base), (x - w1 / 2, base - h * 0.7),
-             (x + w1 / 2, base - h * 0.7), (x + w0 / 2, base)], val)
-    # lantern room
-    c.d.rectangle([S * (x - w1 * 0.75), S * (base - h * 0.78),
-                   S * (x + w1 * 0.75), S * (base - h * 0.7)], fill=val)
-    fill(c, [(x - w1 * 0.8, base - h * 0.9), (x, base - h),
-             (x + w1 * 0.8, base - h * 0.9)], val)
-    # windows carved out (paper)
-    c.d.rectangle([S * (x - w1 * 0.5), S * (base - h * 0.9),
-                   S * (x + w1 * 0.5), S * (base - h * 0.79)], fill=PAPER)
+    w0, w1 = h * 0.20, h * 0.12
+    tower_top = base - h * 0.68
+    fill(c, [(x - w0 / 2, base), (x - w1 / 2, tower_top),
+             (x + w1 / 2, tower_top), (x + w0 / 2, base)], val)
+    # gallery deck that visibly carries the lantern room
+    deck_y = tower_top - h * 0.055
+    c.d.rectangle([S * (x - w1 * 0.95), S * deck_y,
+                   S * (x + w1 * 0.95), S * tower_top], fill=val)
+    # lantern walls: white glass panels contained by black posts and lintels, so
+    # the roof never reads as a floating cap.
+    lan_bot = deck_y
+    lan_top = base - h * 0.88
+    c.d.rectangle([S * (x - w1 * 0.68), S * lan_top,
+                   S * (x + w1 * 0.68), S * lan_bot], fill=PAPER)
+    for xx, ww in ((x - w1 * 0.68, 1.7), (x, 1.2), (x + w1 * 0.68, 1.7)):
+        line(c, (xx, lan_top), (xx, lan_bot), ww, val)
+    line(c, (x - w1 * 0.78, lan_top), (x + w1 * 0.78, lan_top), 1.8, val)
+    line(c, (x - w1 * 0.78, lan_bot), (x + w1 * 0.78, lan_bot), 1.8, val)
+    roof_y = base - h * 0.98
+    fill(c, [(x - w1 * 0.95, lan_top), (x, roof_y),
+             (x + w1 * 0.95, lan_top), (x + w1 * 0.78, lan_top + h * 0.035),
+             (x - w1 * 0.78, lan_top + h * 0.035)], val)
+    line(c, (x, roof_y - h * 0.035), (x, roof_y), 1.2, val)
     # two stripes carved from the tower
     for t in (0.24, 0.46):
         ww = w0 + (w1 - w0) * t
@@ -381,45 +454,44 @@ def lighthouse(c, x, base, h, val=INK):
 
 
 def dove(c, x, y, s_, val=INK):
-    """An iconic dove alighting: plump breast, small head, a fanned tail, and two
-    broad wings lifted overhead. Read from the side — unmistakably a dove."""
+    """A side-profile peace dove rising to the right: outlined body, readable
+    face, transparent wings, and feather lines that survive the 1-bit export."""
     s = s_
     paper = PAPER if val == INK else INK
-    # ---- fanned tail: three clean pointed feathers sweeping back-left
-    tb = (x - 0.24 * s, y + 0.02 * s)
-    for tx_, ty_ in [(-1.00, -0.26), (-1.10, -0.04), (-1.02, 0.20)]:
-        fill(c, [(tb[0], tb[1] - 0.11 * s), (x + tx_ * s, y + ty_ * s),
-                 (tb[0], tb[1] + 0.11 * s)], val)
-    # ---- body: full breast to the right, tapering into the tail at the left
-    body = smooth([(x + 0.30 * s, y - 0.02 * s),    # throat
-                   (x + 0.33 * s, y + 0.16 * s),    # breast
-                   (x + 0.06 * s, y + 0.30 * s),    # belly
-                   (x - 0.26 * s, y + 0.20 * s),
-                   (x - 0.28 * s, y - 0.04 * s),    # tail base
-                   (x - 0.06 * s, y - 0.18 * s),
-                   (x + 0.16 * s, y - 0.16 * s)], 16)
-    fill(c, body, val)
-    # ---- head + short beak, lifted up-right; neck bridges to the body
-    hx, hy = x + 0.42 * s, y - 0.24 * s
-    fill(c, [(x + 0.10 * s, y - 0.14 * s), (hx - 0.10 * s, hy - 0.08 * s),
-             (hx + 0.08 * s, hy + 0.14 * s), (x + 0.24 * s, y + 0.06 * s)], val)
-    disc(c, hx, hy, 0.155 * s, val)
-    fill(c, [(hx + 0.10 * s, hy - 0.05 * s), (hx + 0.32 * s, hy + 0.01 * s),
-             (hx + 0.10 * s, hy + 0.07 * s)], val)   # beak
-    disc(c, hx + 0.02 * s, hy - 0.02 * s, 0.032 * s, paper)   # eye
-    # ---- near wing (in front of body): the hero — a broad curved blade
-    near = smooth([(x + 0.18 * s, y - 0.02 * s),   # shoulder
-                   (x + 0.40 * s, y - 0.44 * s),   # leading edge
-                   (x + 0.28 * s, y - 0.92 * s),   # tip
-                   (x + 0.04 * s, y - 0.88 * s),
-                   (x - 0.12 * s, y - 0.52 * s),   # trailing edge
-                   (x - 0.16 * s, y - 0.18 * s),
-                   (x + 0.02 * s, y - 0.06 * s)], 16)
-    fill(c, near, val)
-    # three feather separations carved across the near wing
-    for lx, ly, tx, ty in [(0.30, -0.30, 0.04, -0.24), (0.24, -0.52, -0.06, -0.44),
-                           (0.16, -0.72, -0.06, -0.64)]:
-        line(c, (x + lx * s, y + ly * s), (x + tx * s, y + ty * s), 0.9, paper)
+    far = smooth([(x - 0.12 * s, y + 0.08 * s), (x - 0.42 * s, y - 0.08 * s),
+                  (x - 0.76 * s, y - 0.30 * s), (x - 0.50 * s, y - 0.10 * s),
+                  (x - 0.22 * s, y + 0.10 * s), (x - 0.12 * s, y + 0.08 * s)], 14)
+    fill(c, far, paper)
+    stroke(c, far, 1.7, val)
+    for dx, dy in [(-0.62, -0.23), (-0.46, -0.10)]:
+        line(c, (x - 0.18 * s, y + 0.07 * s), (x + dx * s, y + dy * s), 0.9, val)
+
+    near = smooth([(x + 0.02 * s, y + 0.04 * s), (x + 0.00 * s, y - 0.34 * s),
+                   (x + 0.18 * s, y - 0.90 * s), (x + 0.38 * s, y - 0.62 * s),
+                   (x + 0.29 * s, y - 0.22 * s), (x + 0.13 * s, y + 0.08 * s),
+                   (x + 0.02 * s, y + 0.04 * s)], 18)
+    fill(c, near, paper)
+    stroke(c, near, 2.2, val)
+    for tx, ty in [(0.31, -0.58), (0.25, -0.40), (0.20, -0.22)]:
+        line(c, (x + 0.08 * s, y + 0.02 * s), (x + tx * s, y + ty * s), 1.0, val)
+
+    body = smooth([(x - 0.42 * s, y + 0.18 * s), (x - 0.16 * s, y + 0.00 * s),
+                   (x + 0.24 * s, y + 0.02 * s), (x + 0.46 * s, y + 0.12 * s),
+                   (x + 0.20 * s, y + 0.31 * s), (x - 0.34 * s, y + 0.27 * s),
+                   (x - 0.42 * s, y + 0.18 * s)], 18)
+    fill(c, body, paper)
+    stroke(c, body, 2.2, val)
+    hx, hy = x + 0.45 * s, y - 0.02 * s
+    c.d.ellipse([S * (hx - 0.13 * s), S * (hy - 0.13 * s),
+                 S * (hx + 0.13 * s), S * (hy + 0.13 * s)],
+                fill=paper, outline=val, width=max(1, int(1.8 * S)))
+    fill(c, [(hx + 0.12 * s, hy - 0.035 * s), (hx + 0.36 * s, hy + 0.00 * s),
+             (hx + 0.12 * s, hy + 0.055 * s)], val)
+    dot(c, hx + 0.03 * s, hy - 0.04 * s, 0.026 * s, val)
+
+    root = (x - 0.36 * s, y + 0.23 * s)
+    for dx, dy in [(-0.68, 0.05), (-0.60, 0.24), (-0.44, 0.42)]:
+        stroke(c, smooth([root, (x + dx * s, y + dy * s)], 6), 1.8, val)
 
 
 def tomb(c, x, base, s_, val=INK):
@@ -529,7 +601,7 @@ def boat(c, x, y, s_, val=INK, sail=True):
                  (x - s_ * 0.04, y - s_ * 0.08)], val)
 
 
-def wheat(c, x, base, h, val=INK, lean=3):
+def wheat(c, x, base, h, val=INK, lean=3, awns=True):
     """A single graceful wheat stalk: a slender curved stem, long fine awns, and
     crisp paired kernels climbing the top third — each kernel a clean teardrop
     carved with a center vein so it reads as grain, not a feathery blob."""
@@ -538,8 +610,9 @@ def wheat(c, x, base, h, val=INK, lean=3):
                    (x + lean, base - h)], 12)
     stroke(c, stem, 1.8, val)
     tx, ty = x + lean, base - h
-    for aw in (-0.10, -0.035, 0.035, 0.10):       # long fine awns crowning the ear
-        line(c, (tx, ty), (tx + aw * h * 1.3, ty - h * 0.28), 0.7, val)
+    if awns:
+        for aw in (-0.10, -0.035, 0.035, 0.10):   # long fine awns crowning the ear
+            line(c, (tx, ty), (tx + aw * h * 1.3, ty - h * 0.28), 0.7, val)
     ear, n = h * 0.34, 5
     for i in range(n):
         t = i / (n - 1)
@@ -625,13 +698,7 @@ def sc_celebration(c):
     # a radiant sunrise crown up top + full laurel branches curving up from the
     # base to a heart — canvas kept clean in the middle
     cx = W / 2
-    sun_rays(c, cx, 44, 20, 84, n=24, a0=180, a1=360, w=1.5)   # a full fan of rays
-    ring(c, cx, 44, 18, 2.0)
-    disc(c, cx, 44, 5)
-    for sgn in (-1, 1):                                        # flourish rule
-        line(c, (cx + sgn * 14, 70), (cx + sgn * 94, 70), 1.0)
-        dot(c, cx + sgn * 100, 70, 2.4)
-    dot(c, cx, 70, 2.6)
+    sun_medallion(c, cx, 42, r=13, rays=22, r1=36)
     for sgn in (-1, 1):                                        # a laurel branch
         base = smooth([(cx + sgn * 8, H - 18), (cx + sgn * 80, H - 16),
                        (cx + sgn * 140, H - 34), (cx + sgn * 168, H - 78)], 16)
@@ -644,35 +711,30 @@ def sc_celebration(c):
             leaf(c, bx, by, 13, -90 + sgn * 38 + side * 30)
         dot(c, base[-1][0], base[-1][1] - 2, 2.4)             # a berry at the tip
     heart(c, cx, H - 26, 7)
-    return (50, 78, 300, 146), ["special"]
+    return (50, 90, 300, 132), ["special"]
 
 
 def sc_golgotha_dawn(c):
-    # three crosses on a hill, sun rising low behind it — text canvas at right
-    sun_rays(c, 104, 196, 30, 100, n=13, a0=198, a1=340, w=1.3)
-    ring(c, 104, 196, 24, 1.8)
+    # three crosses on a hill, a quiet complete sun above the horizon. No road
+    # marks: the hill should read as Calvary, not a trail through a park.
+    sun_plain(c, 78, 86, r=13, rays=14, r1=32)
     pts = smooth([(-6, 214), (70, 198), (150, 192), (250, 216), (330, 238),
                   (W + 6, 252)], 10)
     fill(c, pts + [(W + 6, H + 6), (-6, H + 6)], INK)
     # light rakes across the crown of the hill — carved contour lines give the
     # mound real form instead of a flat silhouette
     engrave_ridge(c, pts, H, n=7, gap=8, inset=6, w=1.0, fade=0.5)
-    # a footpath worn up the near slope, a couple of scattered stones
-    line(c, (196, H), (150, 230), 1.1, PAPER)
-    line(c, (206, H), (168, 228), 1.1, PAPER)
-    for sx, sy, sr in [(232, 246, 3), (256, 232, 2.4), (300, 252, 3.2)]:
-        ring(c, sx, sy, sr, 0.9, PAPER)
     cross(c, 108, 200, 84)
     cross(c, 62, 212, 54, tilt=-7)
     cross(c, 154, 210, 56, tilt=7)
-    birds(c, [(58, 70), (74, 62), (94, 72)], 5)
+    birds(c, [(136, 78, 5.6, -8), (164, 62, 6.6, 3), (195, 82, 5.2, 8)], 5)
     return (214, 58, 166, 146), []
 
 
 def sc_shepherd(c):
     # shepherd leading a little flock across a meadow; a low sun behind him.
     # black silhouettes on a soft groundline — airy, postcard-clean.
-    sun_lined(c, 352, 66, 15, rays=13, r1=40, w=1.2, a0=112, a1=248)
+    sun_medallion(c, 354, 70, r=11, rays=16, r1=25)
     # a distant hill band at the horizon for depth, carved with a bright crest so
     # the flock's meadow reads bright in front of it
     hills = smooth([(-6, 234), (80, 224), (170, 234), (260, 222), (W + 6, 232)], 10)
@@ -709,18 +771,12 @@ def sc_lighthouse(c):
     lx, ly = 322, 146
     ring(c, lx, ly, 5, 1.2)
     disc(c, lx, ly, 2)
-    # a clean searchlight fan: two firm edge rays with softer rays filling the
-    # cone, so it reads as a shaft of light — not two stray wires. Both edges and
-    # every inner ray stay right of x=250, well clear of the text canvas.
-    up, lo = (294, 36), (258, 84)
-    stroke(c, [(lx, ly), up], 1.3)
-    stroke(c, [(lx, ly), lo], 1.3)
-    for t in (0.22, 0.44, 0.66, 0.88):
-        fx = up[0] + (lo[0] - up[0]) * t
-        fy = up[1] + (lo[1] - up[1]) * t
-        line(c, (lx, ly), (fx, fy), 0.7)
+    # small lamp glow: short, uniform sun-ray marks around the beacon read more
+    # naturally on this tiny display than a searchlight cone.
+    sun_rays(c, lx, ly, 9, 25, n=12, w=0.8)
     water_lines(c, 250, 300, x0=0, x1=246, gap=8, w=1.2, seed=7)
-    birds(c, [(58, 236), (80, 229), (102, 236)], 7)  # gulls low over the water
+    birds(c, [(58, 224, 8.6, -5), (95, 218, 7.8, 4),
+              (132, 227, 6.8, -2)], 7)  # gulls low over the water
     return (20, 28, 222, 158), []
 
 
@@ -751,6 +807,9 @@ def sc_still_waters(c):
     for (px, py) in [(92, 120), (312, 116)]:       # snow caps carved out
         fill(c, [(px, py + 2), (px - 9, py + 18), (px - 3, py + 15),
                  (px + 1, py + 19), (px + 8, py + 15)], PAPER)
+    # tiny carved pines on both ranges, matching the crane-moon tree language.
+    pine(c, 62, 178, 34, val=PAPER)
+    pine(c, 302, 178, 32, val=PAPER)
     line(c, (0, hz), (W, hz), 1.0)
     # reflection: mirror the two ranges below the horizon, softened by ripples
     mir = lambda poly: [(x, 2 * hz - y) for (x, y) in poly]
@@ -759,7 +818,7 @@ def sc_still_waters(c):
     water_lines(c, hz + 5, 298, gap=7, w=1.7, val=PAPER, seed=3)
     water_lines(c, hz + 14, 296, gap=26, w=1.0, val=INK, seed=8)
     # a small sun tucked in the valley gap + a shimmer running toward us
-    sun_lined(c, 191, 150, 11, rays=12, r1=24, w=1.0, a0=186, a1=354)
+    sun_medallion(c, 191, 150, r=8, rays=12, r1=19)
     for k in range(5):
         yy = hz + 8 + k * 12
         hw = 5 + k * 3
@@ -769,9 +828,7 @@ def sc_still_waters(c):
 
 def sc_empty_tomb(c):
     # the empty tomb at dawn, lilies at the door — text canvas upper right
-    sun_rays(c, 92, 98, 22, 74, n=13, a0=205, a1=335, w=1.3)
-    ring(c, 92, 98, 18, 1.8)
-    disc(c, 92, 98, 3)
+    sun_plain(c, 92, 98, r=15, rays=20, r1=44)
     hill_outline(c, 252, 14, 1.4, seed_extra=2)
     ground = smooth([(-6, 270), (140, 264), (280, 270), (W + 6, 264)], 8)
     stroke(c, ground, 1.4)
@@ -819,37 +876,44 @@ def sc_botanical_frame(c):
 
 
 def sc_dove_descending(c):
-    # a descending dove with light breaking above it — text canvas lower
-    sun_rays(c, 202, 96, 62, 92, n=18, a0=188, a1=352, w=1.0)   # radiance above
-    dove(c, 202, 96, 50)
-    hill_outline(c, 262, 12, 1.4, seed_extra=6)
-    return (40, 150, 320, 100), []
+    # an ascending dove over a quiet horizon — generous lower text canvas
+    dove(c, 202, 112, 68)
+    hill_outline(c, 276, 7, 1.3, seed_extra=6)
+    return (40, 158, 320, 92), []
 
 
 def sc_wheat_field(c):
-    # a small sheaf of wheat leaning in from the lower left, a low sun at right,
-    # and a fine horizon — the whole right side stays open for the verse
-    sun_lined(c, 344, 252, 15, rays=13, r1=26, w=1.1, a0=202, a1=338)
-    hill_outline(c, 250, 10, 1.2, seed_extra=9)
-    line(c, (0, 282), (W, 280), 1.0)
-    # a gathered sheaf: five stalks fanning from a common foot, each ear reading
-    # on its own, bound low with a wrapped band
-    for h, lean in [(150, -46), (170, -24), (182, -2), (170, 22), (150, 44)]:
-        wheat(c, 106, 300, h, INK, lean=lean)
-    c.d.rounded_rectangle([S * 92, S * 258, S * 120, S * 272], radius=3 * S,
-                          fill=INK)                       # binding band
-    line(c, (98, 272), (90, 288), 1.4)                    # loose tie ends
-    line(c, (112, 272), (120, 289), 1.4)
-    for gx, ga in [(176, -18), (44, -150), (60, -30)]:    # a few fallen grains
-        leaf(c, gx, 289, 5, ga)
-    return (176, 38, 200, 178), []
+    # A calm harvest field: one clean sheaf, ordered furrows, and recognizable
+    # stalks. No loose hatch marks in the sky or text canvas.
+    sun_plain(c, 342, 118, r=13, rays=16, r1=31)
+    horizon = smooth([(-6, 218), (64, 211), (138, 219), (230, 210),
+                      (W + 6, 216)], 10)
+    stroke(c, horizon, 1.2)
+    for k in range(5):
+        y = 226 + k * 12
+        amp = 2.0 + k * 0.35
+        pts = [(x, y + amp * math.sin((x - 40) / 78)) for x in range(0, W + 1, 8)]
+        stroke(c, pts, 1.0)
+    # tied sheaf on the left, composed of individual stalks with visible grain.
+    base_x, base_y = 86, 292
+    for h, lean in [(62, -22), (70, -13), (80, -4), (78, 7), (68, 16), (60, 24)]:
+        wheat(c, base_x, base_y, h, INK, lean=lean, awns=True)
+    c.d.rounded_rectangle([S * 68, S * 256, S * 104, S * 268], radius=3 * S,
+                          fill=INK)
+    for yy in (260, 265):
+        line(c, (70, yy), (102, yy), 0.8, PAPER)
+    line(c, (74, 268), (60, 292), 1.2)
+    line(c, (98, 268), (114, 292), 1.2)
+    # a modest right-side stand balances the composition without turning noisy.
+    for x, h, lean in [(278, 54, -5), (306, 64, 4), (332, 50, 8)]:
+        wheat(c, x, 292, h, INK, lean=lean, awns=True)
+    return (34, 34, 270, 152), []
 
 
 def sc_mountain_path(c):
     # a path winding toward distant peaks between two trees — text canvas top.
     # rays fan only upward (a rising sun behind the peak) so nothing rakes down
     # across the meadow and muddles the path
-    sun_lined(c, 200, 166, 15, rays=13, r1=32, w=1.0, a0=184, a1=356)
     far = smooth([(-6, 184), (60, 152), (130, 178), (200, 142), (280, 176),
                   (W + 6, 152)], 8)
     fill(c, far + [(W + 6, 190), (-6, 190)], INK)
@@ -859,41 +923,41 @@ def sc_mountain_path(c):
                  (px + 2, py + 17), (px + 7, py + 13)], PAPER)
     # meadow line
     line(c, (0, 200), (W, 196), 1.0)
-    # winding path (paper) with bold ruled edges + stepping-stone rungs so it
-    # reads clearly as a trail climbing toward the peak
-    path = [(168, H), (188, 252), (194, 216), (200, 198)]
-    pathR = [(232, H), (212, 252), (206, 216), (200, 198)]
-    fill(c, [(168, H)] + smooth(path[1:], 8)[::-1] + smooth(pathR[1:], 8) + [(232, H)],
-         PAPER)
+    # broad path with gentle perspective: it narrows, but never pinches into a
+    # needle at the mountains.
+    left_edge = smooth([(154, H), (168, 262), (178, 224), (182, 198)], 10)
+    right_edge = smooth([(246, H), (232, 262), (222, 224), (218, 198)], 10)
+    fill(c, left_edge + right_edge[::-1], PAPER)
+    path = [(154, H), (168, 262), (178, 224), (182, 198)]
+    pathR = [(246, H), (232, 262), (222, 224), (218, 198)]
     stroke(c, path, 1.7)
     stroke(c, pathR, 1.7)
     for i in range(6):
         t = i / 6
         y = 300 - 100 * t
-        hw = 30 * (1 - t) + 3
+        hw = 42 * (1 - t) + 12
         line(c, (200 - hw, y), (200 + hw, y), 0.9)
-    # flanking trees, kept a little lighter so the scene doesn't go bottom-heavy
-    tree_round(c, 44, 300, 66)
-    pine(c, 92, 300, 50)
-    tree_round(c, 360, 300, 60)
+    # flanking pines matching the crane-moon tree language.
+    pine(c, 52, 300, 70)
+    pine(c, 94, 300, 50)
     pine(c, 312, 300, 46)
+    pine(c, 354, 300, 64)
     return (44, 24, 312, 98), []
 
 
 def sc_open_book(c):
-    # an open Bible with quiet rays rising off the page — text canvas up top
-    sun_rays(c, 200, 250, 20, 78, n=13, a0=206, a1=334, w=1.0)
+    # an open Bible with a simple halo above the page — text canvas up top
     hill_outline(c, 272, 10, 1.4, seed_extra=11)
     open_book(c, 200, 236, 180)
-    for (x, y) in [(150, 178), (250, 172), (200, 186)]:   # sparkles above the page
-        line(c, (x - 3, y), (x + 3, y), 0.9)
-        line(c, (x, y - 3), (x, y + 3), 0.9)
+    # The verse zone ends at y=166. Keep the sunburst fully below it while still
+    # giving the page a clear "word as light" glow.
+    sun_plain(c, 200, 199, r=15, w=1.2, rays=14, r1=28)
     return (34, 24, 332, 142), []
 
 
 def sc_sailboat_dawn(c):
     # a little sailboat on a calm sea, sun low at the horizon — text canvas up top
-    sun_lined(c, 348, 206, 17, rays=14, r1=42, w=1.2, a0=196, a1=344)
+    sun_medallion(c, 348, 206, r=13, rays=16, r1=33)
     line(c, (0, 226), (W, 224), 1.0)
     boat(c, 258, 221, 15, INK)                   # a distant sail for depth
     boat(c, 118, 210, 54, INK)                   # the near sailboat, larger
@@ -911,7 +975,7 @@ def sc_sailboat_dawn(c):
 
 def sc_starry_night(c):
     # minimalist night sky, crescent moon, a hill with pines — white ink text
-    zone = (20, 24, 324, 194)
+    zone = (18, 22, 328, 200)
     stars(c, 80, zone=zone, y1=232, vmin=210)
     # small crescent moon tucked into the corner (white disc carved by a black one)
     disc(c, 366, 44, 16, 255)
@@ -924,19 +988,16 @@ def sc_starry_night(c):
 
 
 def sc_moonlit_hills(c):
-    # a large low moon over layered hills — white ink text
+    # clean full moon over layered hills — white ink text
     zone = (26, 30, 282, 152)
     stars(c, 44, zone=zone, y1=150, vmin=210)
-    disc(c, 352, 150, 40, 255)          # big low moon, clear of the text canvas
-    # a couple of soft craters carved back to sky
-    for (mx, my, mr) in [(344, 142, 5), (362, 156, 4), (350, 166, 3)]:
-        disc(c, mx, my, mr, INK)
-    # layered hills as filled black shapes with a bright white crest line
-    for by, amp, s in [(198, 16, 21), (228, 20, 22), (262, 26, 23)]:
+    disc(c, 352, 80, 25, 255)
+    # layered hills: no random foreground blobs, just clean white crest lines
+    for by, amp, s in [(200, 14, 21), (230, 18, 22), (264, 24, 23)]:
         r = ridge_pts(c, by, amp, seed_extra=s)
         stroke(c, r, 1.4, 255)
-    tree_round(c, 70, 300, 70, val=255)
-    pine(c, 350, 300, 64, val=255)
+    for x, h in [(44, 44), (72, 30), (328, 34), (360, 58)]:
+        pine(c, x, 300, h, val=255)
     return zone, ["night", "wink"]
 
 
@@ -1066,7 +1127,6 @@ def sc_great_wave(c):
     barrel = smooth([(104, 156), (104, 128), (116, 110), (136, 106), (151, 118),
                      (146, 136), (128, 150), (104, 156)], 12)
     fill(c, barrel, PAPER)
-    ring(c, 126, 130, 6, 1.3, INK)
     # engraved contour lines rake up the wave's front face (linocut water)
     for k in range(1, 5):
         seg = smooth([(-54 + k * 4, 206 - k * 8), (-6, 184 - k * 9),
@@ -1125,8 +1185,7 @@ SCENES = [
     ("still-waters", sc_still_waters),
     ("empty-tomb", sc_empty_tomb),
     ("botanical-frame", sc_botanical_frame),
-    ("dove-descending", sc_dove_descending),
-    ("wheat-field", sc_wheat_field),
+    ("dove-ascending", sc_dove_descending),
     ("mountain-path", sc_mountain_path),
     ("open-book", sc_open_book),
     ("sailboat-dawn", sc_sailboat_dawn),

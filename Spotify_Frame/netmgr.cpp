@@ -75,24 +75,36 @@ void netForgetWifi() {
 static const char PORTAL_HTML[] PROGMEM = R"html(<!doctype html>
 <html><head><meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>GraceFrame Setup</title><style>
-body{font-family:Georgia,serif;background:#f6f1e7;color:#2b2620;margin:0;
-display:flex;justify-content:center}main{max-width:380px;padding:28px 22px}
-h1{font-size:26px;margin:10px 0 2px}p{color:#6b6156;line-height:1.45}
-label{display:block;margin:16px 0 6px;font-weight:bold}
-input{width:100%;padding:12px;font-size:16px;border:1px solid #c9bda8;
-border-radius:10px;background:#fffdf8;box-sizing:border-box}
-button{margin-top:22px;width:100%;padding:14px;font-size:17px;border:0;
+*{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+background:#f6f1e7;color:#2b2620;margin:0;display:flex;justify-content:center}
+main{width:100%;max-width:430px;padding:28px 22px 36px}
+.mark{font-family:Georgia,serif;font-size:34px;line-height:1;margin-bottom:12px}
+h1{font-family:Georgia,serif;font-size:30px;margin:0 0 8px}
+p{color:#645a4f;line-height:1.45;margin:0 0 14px}
+.steps{background:#fffaf0;border:1px solid #d9cbb5;border-radius:14px;padding:14px 16px;margin:18px 0}
+.steps b{color:#2b2620}ol{margin:8px 0 0 20px;padding:0;color:#4f463d;line-height:1.45}
+label{display:block;margin:16px 0 6px;font-weight:700;color:#2b2620}
+input{width:100%;padding:13px 12px;font-size:17px;border:1px solid #c9bda8;
+border-radius:10px;background:#fffdf8}
+button{margin-top:22px;width:100%;padding:15px;font-size:17px;font-weight:700;border:0;
 border-radius:12px;background:#2b2620;color:#f6f1e7}
-.cross{font-size:30px}.hint{font-size:14px;color:#8a7f70;margin-top:18px}
-.show{font-weight:normal;font-size:14px;color:#6b6156;margin-top:8px}
-.show input{width:auto;margin-right:6px;vertical-align:middle}</style></head>
+.hint{font-size:14px;color:#7c7063;margin-top:18px}
+.show{font-weight:500;font-size:14px;color:#645a4f;margin-top:9px}
+.show input{width:auto;margin-right:7px;vertical-align:middle}</style></head>
 <body><main>
-<div class=cross>&#10013;&#65039;</div>
-<h1>GraceFrame</h1><p>Choose your home Wi-Fi so the frame can connect.</p>
+<div class=mark>+</div>
+<h1>Connect GraceFrame</h1>
+<p>Choose the home Wi-Fi network this frame should use.</p>
 %BANNER%
+<div class=steps><b>If your iPhone says this network has no Internet, tap
+"Use Without Internet".</b><ol>
+<li>Pick the home Wi-Fi below.</li>
+<li>Enter the Wi-Fi password.</li>
+<li>Tap Save &amp; Connect, then watch the frame.</li>
+</ol></div>
 <form method=POST action=/save onsubmit="return !!this.ssid.value.trim()">
-<label>Network name</label>
-<input name=ssid list=nets placeholder="Your Wi-Fi name" autocomplete=off
+<label>Home Wi-Fi</label>
+<input name=ssid list=nets placeholder="Network name" autocomplete=off
  autocapitalize=off autocorrect=off spellcheck=false required>
 <datalist id=nets>%OPTIONS%</datalist>
 <label>Password</label>
@@ -100,10 +112,8 @@ border-radius:12px;background:#2b2620;color:#f6f1e7}
  autocomplete=off autocapitalize=off autocorrect=off spellcheck=false>
 <label class=show><input type=checkbox onchange="pw.type=this.checked?'text':'password'">Show password</label>
 <button>Save &amp; Connect</button></form>
-<p class=hint>Pick your network from the list, or type it (needed for hidden
-networks). The frame uses <b>2.4&nbsp;GHz</b> Wi-Fi &mdash; if your network lists
-a separate 5&nbsp;GHz name, choose the 2.4&nbsp;GHz one. If this page comes back
-after saving, the password was likely mistyped &mdash; just try again.</p>
+<p class=hint>GraceFrame uses 2.4 GHz Wi-Fi. If setup comes back with a red
+message, the password probably needs a small fix.</p>
 </main></body></html>)html";
 
 void netPortal() {
@@ -151,7 +161,7 @@ void netPortal() {
       "border-radius:10px;color:#8a3b28;line-height:1.4\">That Wi-Fi name or "
       "password didn&rsquo;t connect. Please check them (passwords are "
       "case-sensitive) and try again.</p>" : "");
-    portal.send(200, "text/html", page);
+    portal.send(200, "text/html; charset=utf-8", page);
   };
   portal.on("/", HTTP_GET, servePortal);
   // every other URL (the OS captive-detection probes) -> bounce to the portal.
@@ -166,10 +176,14 @@ void netPortal() {
     ssid.trim();
     if (!ssid.length()) {                                  // never save a blank network
       portal.send(200, "text/html",
+                  "<!doctype html><html><head><meta charset=utf-8>"
                   "<meta name=viewport content='width=device-width,initial-scale=1'>"
-                  "<body style='font-family:serif;padding:24px'>"
-                  "<h2>Please enter your Wi-Fi name.</h2>"
-                  "<p><a href='/'>Go back</a></p></body>");
+                  "<style>body{font-family:-apple-system,BlinkMacSystemFont,"
+                  "'Segoe UI',sans-serif;background:#f6f1e7;color:#2b2620;"
+                  "padding:28px 22px}main{max-width:430px;margin:auto}"
+                  "a{color:#2b2620;font-weight:700}</style></head><body><main>"
+                  "<h2>Please enter the Wi-Fi name.</h2>"
+                  "<p><a href='/'>Go back to setup</a></p></main></body></html>");
       return;
     }
     Preferences p;
@@ -179,14 +193,26 @@ void netPortal() {
     p.putBool("wifi_pending", true);      // TEST these on the next boot
     p.putBool("force_setup", false);
     p.end();
-    portal.send(200, "text/html",
+    portal.send(200, "text/html; charset=utf-8",
+                "<!doctype html><html><head><meta charset=utf-8>"
                 "<meta name=viewport content='width=device-width,initial-scale=1'>"
-                "<body style='font-family:serif;padding:24px;color:#2b2620'>"
-                "<h2>Testing your Wi-Fi…</h2>"
-                "<p>GraceFrame is connecting now. In a few seconds the frame will "
-                "show your first verse. If setup reopens with a red note, the "
-                "password needs a small fix — just try again.</p>"
-                "<p>You can close this page.</p></body>");
+                "<style>*{box-sizing:border-box}body{font-family:-apple-system,"
+                "BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f6f1e7;"
+                "color:#2b2620;margin:0;padding:28px 22px}main{max-width:430px;"
+                "margin:auto}.mark{font-family:Georgia,serif;font-size:34px}"
+                "h1{font-family:Georgia,serif;font-size:30px;margin:12px 0 8px}"
+                "p{color:#645a4f;line-height:1.45}.box{background:#fffaf0;"
+                "border:1px solid #d9cbb5;border-radius:14px;padding:14px 16px;"
+                "margin-top:18px}b{color:#2b2620}</style></head><body><main>"
+                "<div class=mark>+</div><h1>GraceFrame is connecting</h1>"
+                "<p>The frame is testing the home Wi-Fi now. Watch the frame, "
+                "not this browser page.</p><div class=box><p><b>If your iPhone "
+                "asks about no Internet, tap \"Use Without Internet\".</b></p>"
+                "<p>That message is normal because your phone is still on the "
+                "temporary GraceFrame-Setup network.</p></div>"
+                "<p>If the password worked, the frame will leave setup and show "
+                "a verse in a few seconds. If setup opens again with a red "
+                "message, re-enter the Wi-Fi password.</p></main></body></html>");
     delay(1200);
     ESP.restart();
   });

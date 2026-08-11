@@ -60,3 +60,53 @@ grain.
 Blur and grain aren't merely unlikely here — they are **excluded** by the
 representation (2 states), the transform (threshold, zero error diffusion), and
 the device (bistable). QED.
+
+## Appendix: why live lyric and timer strips do not leave old pixels
+
+The live lyric band and Now Playing timer strip use the same two-phase update:
+
+```
+1. set every pixel in rectangle R to white
+2. refresh only R
+3. draw the new content into R
+4. refresh only R again
+5. copy only R into the panel's previous-RAM baseline
+```
+
+Let `G_t(x,y)` be the visible glass state after update `t`, and `C_t(x,y)` be
+the canvas state for the next content. For every pixel inside the strip
+rectangle `R`, phase 1 forces `G_t(x,y)=white`. Phase 2 then drives the pixel
+from white to exactly `C_t(x,y)`. Therefore the final state is
+`G_t(x,y)=C_t(x,y)` for all `(x,y) in R`, independent of what was displayed at
+`t-1`. Old digits cannot remain because the old state is not part of the second
+transition.
+
+For every pixel outside `R`, the e-paper controller is asked to refresh only
+`R`, so `G_t(x,y)=G_{t-1}(x,y)`. The previous-RAM copy is also restricted to
+`R`, so a later partial refresh cannot compare against an invented baseline for
+unrefreshed pixels. That is the key invariant:
+
+```
+previous_R_t == G_t on R
+previous_outside_R_t == previous_outside_R_(t-1)
+```
+
+The rectangles are disjoint in the firmware constants:
+
+```
+Lyric band:       y = 199..234
+Transport icons:  y = 235..263
+Timer strip:      y = 266..299
+```
+
+The bottom strip contains the full timer/bar draw area:
+
+```
+Timer strip: x = 0..399, y = 266..299
+Bar border:  x = 18..381, y = 267..278
+Bar fill:    x = 20..379, y = 269..276
+Time text:   baseline y = 295; SansSmall digits occupy y = 286..294
+```
+
+So the clean-refresh rectangle strictly covers every pixel that can change in
+the progress bar and timestamp, and it excludes the lyric band and controls.
