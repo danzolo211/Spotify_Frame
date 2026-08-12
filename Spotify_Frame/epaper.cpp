@@ -18,8 +18,7 @@ static uint16_t partials = 0;
 static uint32_t lastFullMs = 0;
 static uint32_t lastPushMs = 0;
 static uint32_t refreshes = 0;
-static const int CLEAN_MAX_H = 120;
-struct CleanRect { int x, y, w, h; };
+static const int CLEAN_MAX_H = 100;
 
 void epdInit() {
   SPI.begin(EPD_SCK, -1, EPD_MOSI, EPD_CS);
@@ -102,7 +101,7 @@ static void regionCleanCore(int x, int y, int w, int h) {
   if (y >= SCREEN_H || h <= 0) return;
   if (w > SCREEN_W - x) w = SCREEN_W - x;
   if (h > SCREEN_H - y) h = SCREEN_H - y;
-  if (h > CLEAN_MAX_H) h = CLEAN_MAX_H;   // this helper is for small live regions
+  if (h > CLEAN_MAX_H) h = CLEAN_MAX_H;   // this helper is for small strips
 
   // byte-align x/w for the panel's partial RAM window
   int x0 = x & ~7;
@@ -122,85 +121,16 @@ static void regionCleanCore(int x, int y, int w, int h) {
   display.refresh(x0, y, w0, h);
   display.epd2.writeImageToPrevious(white, x0, y, w0, h, false);
 
-  // Phase 2 — paint the real content, a clean white->content transition.
-  display.writeImage(buf, 0, 0, SCREEN_W, SCREEN_H, true);
+  // Phase 2 — paint only this window's real content, a clean white->content
+  // transition. Do not load the full canvas into current RAM here: on this
+  // panel that can make unrelated rows visibly twitch during a strip refresh.
+  display.epd2.writeImagePart(buf, x0, y, SCREEN_W, SCREEN_H,
+                              x0, y, w0, h, true);
   display.refresh(x0, y, w0, h);
   // Sync ONLY this window into "previous" (mirror the glass). Writing the whole
   // buffer would poison the baseline for regions we didn't repaint here (e.g.
   // the progress bar), reintroducing ghosting on the next partial elsewhere.
   display.epd2.writeImagePartToPrevious(buf, x0, y, SCREEN_W, SCREEN_H,
-                                        x0, y, w0, h, true);
-
-  display.epd2.powerOff();
-  lastPushMs = millis();
-  refreshes += 2;
-}
-
-static void scratchWhiteRect(uint8_t* scratch, int sx, int sy, int sw, int sh,
-                             const CleanRect& r) {
-  int rx0 = r.x & ~7;
-  int rx1 = (r.x + r.w + 7) & ~7;
-  int ry0 = r.y;
-  int ry1 = r.y + r.h;
-  if (rx0 < sx) rx0 = sx;
-  if (rx1 > sx + sw) rx1 = sx + sw;
-  if (ry0 < sy) ry0 = sy;
-  if (ry1 > sy + sh) ry1 = sy + sh;
-  if (rx0 >= rx1 || ry0 >= ry1) return;
-
-  int bytesPerRow = sw / 8;
-  int startByte = (rx0 - sx) / 8;
-  int byteCount = (rx1 - rx0) / 8;
-  for (int yy = ry0; yy < ry1; yy++) {
-    memset(scratch + (yy - sy) * bytesPerRow + startByte, 0xFF, byteCount);
-  }
-}
-
-static void regionMaskedCleanCore(int x, int y, int w, int h,
-                                  const CleanRect* cleanRects,
-                                  int cleanRectCount) {
-  if (w <= 0 || h <= 0) return;
-  if (x < 0) { w += x; x = 0; }
-  if (y < 0) { h += y; y = 0; }
-  if (x >= SCREEN_W || w <= 0) return;
-  if (y >= SCREEN_H || h <= 0) return;
-  if (w > SCREEN_W - x) w = SCREEN_W - x;
-  if (h > SCREEN_H - y) h = SCREEN_H - y;
-  if (h > CLEAN_MAX_H) h = CLEAN_MAX_H;
-
-  int x0 = x & ~7;
-  int x1 = (x + w + 7) & ~7;
-  int w0 = x1 - x0;
-  if (x0 < 0) x0 = 0;
-  if (w0 > SCREEN_W - x0) w0 = SCREEN_W - x0;
-
-  static uint8_t scratch[(SCREEN_W / 8) * CLEAN_MAX_H];
-  const uint8_t* buf = canvas.getBuffer();
-  const int screenBytesPerRow = SCREEN_W / 8;
-  const int bytesPerRow = w0 / 8;
-  const int srcByte0 = x0 / 8;
-
-  // Start phase 1 from the current canvas so unchanged controls stay visible.
-  for (int row = 0; row < h; row++) {
-    uint8_t* dst = scratch + row * bytesPerRow;
-    const uint8_t* src = buf + (y + row) * screenBytesPerRow + srcByte0;
-    for (int col = 0; col < bytesPerRow; col++) dst[col] = ~src[col];
-  }
-  for (int i = 0; i < cleanRectCount; i++) {
-    scratchWhiteRect(scratch, x0, y, w0, h, cleanRects[i]);
-  }
-
-  // Phase 1: clean only the volatile lyric/timer sub-rectangles. The controls
-  // are rewritten as their current canvas pixels, not white.
-  display.epd2.writeImage(scratch, x0, y, w0, h, false);
-  display.refresh(x0, y, w0, h);
-  display.epd2.writeImageToPrevious(scratch, x0, y, w0, h, false);
-
-  // Phase 2: paint the real canvas for the whole lower live region.
-  const uint8_t* full = canvas.getBuffer();
-  display.writeImage(full, 0, 0, SCREEN_W, SCREEN_H, true);
-  display.refresh(x0, y, w0, h);
-  display.epd2.writeImagePartToPrevious(full, x0, y, SCREEN_W, SCREEN_H,
                                         x0, y, w0, h, true);
 
   display.epd2.powerOff();
@@ -224,16 +154,6 @@ void epdPushRegionClean(int x, int y, int w, int h) {
 // no periodic full refresh is needed; the next song's commit does a full anyway.
 void epdPushLyric(int x, int y, int w, int h) {
   regionCleanCore(x, y, w, h);
-}
-
-void epdPushNowPlayingLive() {
-  const CleanRect cleanRects[] = {
-    {LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H},
-    {NP_BAR_STRIP_X, NP_BAR_STRIP_Y, NP_BAR_STRIP_W, NP_BAR_STRIP_H},
-  };
-  regionMaskedCleanCore(NP_LIVE_STRIP_X, NP_LIVE_STRIP_Y,
-                        NP_LIVE_STRIP_W, NP_LIVE_STRIP_H,
-                        cleanRects, 2);
 }
 
 uint32_t epdRefreshCount() { return refreshes; }

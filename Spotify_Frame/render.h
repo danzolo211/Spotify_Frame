@@ -15,8 +15,8 @@ void renderSpotifyProgressStrip();
 // Live lyric line for the Now-Playing screen. renderSetLyric stores the current
 // line (empty = blank band; instrumental = a small centered note); renderSpotify
 // draws it as part of the full frame, and renderLyricBand repaints ONLY the lyric
-// band in the canvas. Lyric partial pushes use a masked lower live Now-Playing
-// region so the timer/progress strip is restored while the controls stay intact.
+// band in the canvas. Its panel push is confined to the same band, so the
+// transport controls and progress strip stay untouched until their own updates.
 void renderSetLyric(const String& line, bool instrumental);
 void renderLyricBand();
 void renderNote(const String& text, const String& from);

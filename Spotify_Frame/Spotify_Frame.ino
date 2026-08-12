@@ -202,7 +202,7 @@ static void drawSpotifyProgressStrip() {
 
 static void pushSpotifyLyricStrip() {
   renderLyricBand();
-  epdPushNowPlayingLive();
+  epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
   uint32_t now = millis();
   lastCleanStripPush = lastLyricPush = now;
 }

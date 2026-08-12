@@ -24,10 +24,6 @@ void epdPushRegionClean(int x, int y, int w, int h);
 // Crisp white->content clean of a small strip for the live-lyric line and the
 // Now-Playing timer/bar: no rate-limit wait and no full-refresh budget, so lyric
 // playback never causes a full-screen flash. Cadence is gated by the caller.
+// Both panel-RAM writes and both refreshes are confined to the requested window.
 void epdPushLyric(int x, int y, int w, int h);
-
-// Lyric-change refresh for Now Playing. It drives one lower live region but
-// masks the clean phase: lyric and timer pixels are blanked to prevent ghosting,
-// while the play/pause and skip controls are preserved from the canvas.
-void epdPushNowPlayingLive();
 uint32_t epdRefreshCount();

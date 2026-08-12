@@ -56,20 +56,15 @@ static const SpecialDate SPECIAL_DATES[] = {
 
 // ---------- live synced lyrics (LrcLib) ----------
 // A single current line, centered under the album art, advanced in time with the
-// song. Each line change uses a masked clean refresh over the lower live
-// Now-Playing region: the lyric and timer strips are carried through white
-// (full-refresh crispness, no ghosting), while the play/pause and skip controls
-// are preserved from the canvas. Timer-only ticks still use the small bottom
-// strip and only advance on the configured cadence. See lyrics.cpp and
-// epdPushLyric() in epaper.cpp for why the clean path is mandatory on this panel.
+// song. Each line change repaints ONLY the lyric strip through white (a clean
+// white->text transition = full-refresh crispness, no ghosting). Timer-only
+// ticks repaint ONLY the small bottom strip and only advance on the configured
+// cadence. See lyrics.cpp and epdPushLyric() in epaper.cpp for why the clean path
+// is mandatory on this panel.
 #define LYRIC_BAND_X    0
 #define LYRIC_BAND_Y    199
 #define LYRIC_BAND_W    400
 #define LYRIC_BAND_H    36
-#define NP_LIVE_STRIP_X 0
-#define NP_LIVE_STRIP_Y LYRIC_BAND_Y
-#define NP_LIVE_STRIP_W 400
-#define NP_LIVE_STRIP_H (300 - LYRIC_BAND_Y)
 #define NP_BAR_STRIP_X  0
 #define NP_BAR_STRIP_Y  266
 #define NP_BAR_STRIP_W  400

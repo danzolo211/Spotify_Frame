@@ -278,9 +278,8 @@ static void lyricNote(int cx, int cy) {
 
 // Repaint ONLY the lyric band in the canvas: clear it to paper, then draw the
 // current line centered (single line, ellipsized so it can never spill sideways).
-// The panel push for lyric changes covers the lower live Now-Playing region,
-// carrying the timer/progress strip with it, but this renderer keeps the canvas
-// mutation isolated to lyric pixels.
+// The panel push for lyric changes is confined to this same band, so progress,
+// timestamps, and transport controls stay visually stable.
 void renderLyricBand() {
   canvas.fillRect(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H, PAPER);
   if (!settings.lyricsOn) return;                 // lyrics off -> band stays blank
