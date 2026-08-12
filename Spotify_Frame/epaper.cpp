@@ -147,7 +147,29 @@ void epdPushRegionClean(int x, int y, int w, int h) {
   partials += 2;   // counts toward the deep-clean budget, like other pushes
 }
 
-void epdPushRegionOnly(int x, int y, int w, int h) {
+static void scratchWhiteRect(uint8_t* scratch, int sx, int sy, int sw, int sh,
+                             const EpdCleanRect& r) {
+  int rx0 = r.x & ~7;
+  int rx1 = (r.x + r.w + 7) & ~7;
+  int ry0 = r.y;
+  int ry1 = r.y + r.h;
+  if (rx0 < sx) rx0 = sx;
+  if (rx1 > sx + sw) rx1 = sx + sw;
+  if (ry0 < sy) ry0 = sy;
+  if (ry1 > sy + sh) ry1 = sy + sh;
+  if (rx0 >= rx1 || ry0 >= ry1) return;
+
+  int bytesPerRow = sw / 8;
+  int startByte = (rx0 - sx) / 8;
+  int byteCount = (rx1 - rx0) / 8;
+  for (int yy = ry0; yy < ry1; yy++) {
+    memset(scratch + (yy - sy) * bytesPerRow + startByte, 0xFF, byteCount);
+  }
+}
+
+void epdPushRegionMaskedClean(int x, int y, int w, int h,
+                              const EpdCleanRect* cleanRects,
+                              int cleanRectCount) {
   if (w <= 0 || h <= 0) return;
   if (x < 0) { w += x; x = 0; }
   if (y < 0) { h += y; y = 0; }
@@ -155,6 +177,7 @@ void epdPushRegionOnly(int x, int y, int w, int h) {
   if (y >= SCREEN_H || h <= 0) return;
   if (w > SCREEN_W - x) w = SCREEN_W - x;
   if (h > SCREEN_H - y) h = SCREEN_H - y;
+  if (h > CLEAN_MAX_H) h = CLEAN_MAX_H;
 
   int x0 = x & ~7;
   int x1 = (x + w + 7) & ~7;
@@ -162,7 +185,27 @@ void epdPushRegionOnly(int x, int y, int w, int h) {
   if (x0 < 0) x0 = 0;
   if (w0 > SCREEN_W - x0) w0 = SCREEN_W - x0;
 
+  static uint8_t scratch[(SCREEN_W / 8) * CLEAN_MAX_H];
   const uint8_t* buf = canvas.getBuffer();
+  const int screenBytesPerRow = SCREEN_W / 8;
+  const int bytesPerRow = w0 / 8;
+  const int srcByte0 = x0 / 8;
+
+  // Start phase 1 from the final canvas. Unlisted pixels therefore do not get
+  // a white blink; only the explicit clean rects do.
+  for (int row = 0; row < h; row++) {
+    uint8_t* dst = scratch + row * bytesPerRow;
+    const uint8_t* src = buf + (y + row) * screenBytesPerRow + srcByte0;
+    for (int col = 0; col < bytesPerRow; col++) dst[col] = ~src[col];
+  }
+  for (int i = 0; i < cleanRectCount; i++) {
+    scratchWhiteRect(scratch, x0, y, w0, h, cleanRects[i]);
+  }
+
+  display.epd2.writeImage(scratch, x0, y, w0, h, false);
+  display.refresh(x0, y, w0, h);
+  display.epd2.writeImageToPrevious(scratch, x0, y, w0, h, false);
+
   display.epd2.writeImagePart(buf, x0, y, SCREEN_W, SCREEN_H,
                               x0, y, w0, h, true);
   display.refresh(x0, y, w0, h);
@@ -170,7 +213,7 @@ void epdPushRegionOnly(int x, int y, int w, int h) {
                                         x0, y, w0, h, true);
   display.epd2.powerOff();
   lastPushMs = millis();
-  refreshes++;
+  refreshes += 2;
 }
 
 // Lyric / Now-Playing-timer strip repaint. Same crisp white->content clean, but it

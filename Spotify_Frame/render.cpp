@@ -311,7 +311,7 @@ int spotifyProgressFillWidth() {
   float frac = app.trackDuration > 0
                ? (float)app.trackProgress / app.trackDuration : 0;
   frac = constrain(frac, 0.0f, 1.0f);
-  return (int)((BAR_R - BAR_L - 4) * frac);
+  return (int)(NP_FILL_MAX_W * frac);
 }
 
 String spotifyElapsedTimeText() {
@@ -323,7 +323,7 @@ void renderSpotifyProgressBarOnly() {
   canvas.drawRoundRect(BAR_L, BAR_Y, BAR_R - BAR_L, BAR_H, BAR_H / 2, INK);
   int fw = spotifyProgressFillWidth();
   if (fw > 2)
-    canvas.fillRoundRect(BAR_L + 2, BAR_Y + 2, fw, BAR_H - 4, (BAR_H - 4) / 2, INK);
+    canvas.fillRoundRect(NP_FILL_X, NP_FILL_Y, fw, NP_FILL_H, NP_FILL_H / 2, INK);
 }
 
 void renderSpotifyElapsedTimeOnly() {

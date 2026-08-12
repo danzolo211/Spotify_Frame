@@ -50,7 +50,7 @@ static const SpecialDate SPECIAL_DATES[] = {
                                      // (skip-storms never touch the panel)
 
 // ---------- Spotify polling ----------
-#define POLL_ACTIVE_MS   5000
+#define POLL_ACTIVE_MS   2500    // active song state, especially pause/play, should feel prompt
 #define POLL_IDLE_MS     5000    // how fast music is noticed when nothing's on
                                  // (kept snappy so Now Playing appears promptly)
 
@@ -58,10 +58,12 @@ static const SpecialDate SPECIAL_DATES[] = {
 // A single current line, centered under the album art, advanced in time with the
 // song. Each line change repaints ONLY the lyric strip through white (a clean
 // white->text transition = full-refresh crispness, no ghosting). Timer-only
-// ticks repaint only the progress pieces that actually change: the growing bar
-// gets a plain partial update, while the small elapsed-time box gets the clean
-// white->text path. See lyrics.cpp and epdPushLyric() in epaper.cpp for why the
-// clean path is mandatory on this panel.
+// ticks repaint one bottom progress window, but only the small elapsed-time box
+// and the moving fill edge are cleaned through white. The rest of the progress
+// UI is preserved from the canvas through both phases, avoiding the skinny-fill
+// artifact of a tiny plain partial while still avoiding a full bottom-strip blink.
+// See lyrics.cpp and epdPushLyric() in epaper.cpp for why the clean path is
+// mandatory on this panel.
 #define LYRIC_BAND_X    0
 #define LYRIC_BAND_Y    199
 #define LYRIC_BAND_W    400
@@ -78,6 +80,11 @@ static const SpecialDate SPECIAL_DATES[] = {
 #define NP_TIME_LEFT_Y  282
 #define NP_TIME_LEFT_W  80
 #define NP_TIME_LEFT_H  18
+#define NP_FILL_X       20
+#define NP_FILL_Y       269
+#define NP_FILL_MAX_W   360
+#define NP_FILL_H       8
+#define NP_FILL_EDGE_OVERLAP 8
 
 #define LYRIC_MIN_GAP_MS        900      // min ms between clean strip repaints
 #define LYRIC_FETCH_TIMEOUT_MS  8000     // body-read cap (matches the Spotify client;

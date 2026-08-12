@@ -113,9 +113,9 @@ visibly flash the progress bar, timestamps, play/pause button, or skip arrows
 because the clean helper writes only `R_lyric` into current RAM, previous RAM,
 and the partial-refresh window.
 
-Normal timer ticks also minimize flashing. The progress fill is monotonic during
-ordinary playback, so the bar box uses a plain rectangle-confined partial update:
-new black pixels are added to the right, with no white blanking phase. Only the
-small elapsed-time box uses the two-phase clean path, because changing digits
-need old black pixels erased. If Spotify seeks backward and the bar must shrink,
-the firmware falls back to a clean update of the bar box only.
+Normal timer ticks also minimize flashing. The progress tick uses one masked
+two-phase update over the bottom progress window. Its clean set is the small
+elapsed-time box plus only the moving edge of the progress fill. Unchanged bar
+and frame pixels are copied from the final canvas during both phases, so they do
+not get a white blink. If Spotify seeks backward and the bar must shrink, the
+firmware cleans the fill interior so old black pixels are erased.

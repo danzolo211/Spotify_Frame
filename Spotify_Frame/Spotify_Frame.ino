@@ -210,25 +210,40 @@ static void pushSpotifyProgressTick() {
   bool barChanged = (shownBarFillW < 0 || nextFillW != shownBarFillW);
   bool barShrank = (shownBarFillW >= 0 && nextFillW < shownBarFillW);
   bool elapsedChanged = (nextElapsed != shownElapsedText);
+  EpdCleanRect cleanRects[3];
+  int cleanCount = 0;
 
   if (barChanged) {
     renderSpotifyProgressBarOnly();
-    if (barShrank)
-      epdPushLyric(NP_BAR_BOX_X, NP_BAR_BOX_Y, NP_BAR_BOX_W, NP_BAR_BOX_H);
-    else
-      epdPushRegionOnly(NP_BAR_BOX_X, NP_BAR_BOX_Y, NP_BAR_BOX_W, NP_BAR_BOX_H);
+    if (barShrank || shownBarFillW < 0) {
+      cleanRects[cleanCount++] = {NP_FILL_X, NP_FILL_Y, NP_FILL_MAX_W, NP_FILL_H};
+    } else if (nextFillW > shownBarFillW) {
+      int cleanStartW = shownBarFillW > NP_FILL_EDGE_OVERLAP
+                          ? shownBarFillW - NP_FILL_EDGE_OVERLAP : 0;
+      int cleanW = nextFillW - cleanStartW;
+      if (cleanW > 0) {
+        cleanRects[cleanCount++] = {
+          NP_FILL_X + cleanStartW, NP_FILL_Y, cleanW, NP_FILL_H
+        };
+      }
+    }
     shownBarFillW = nextFillW;
   }
 
   if (elapsedChanged) {
     renderSpotifyElapsedTimeOnly();
-    epdPushLyric(NP_TIME_LEFT_X, NP_TIME_LEFT_Y,
-                 NP_TIME_LEFT_W, NP_TIME_LEFT_H);
+    cleanRects[cleanCount++] = {
+      NP_TIME_LEFT_X, NP_TIME_LEFT_Y, NP_TIME_LEFT_W, NP_TIME_LEFT_H
+    };
     shownElapsedText = nextElapsed;
   }
 
-  if (barChanged || elapsedChanged)
+  if (barChanged || elapsedChanged) {
+    epdPushRegionMaskedClean(NP_BAR_STRIP_X, NP_BAR_STRIP_Y,
+                             NP_BAR_STRIP_W, NP_BAR_STRIP_H,
+                             cleanRects, cleanCount);
     lastCleanStripPush = millis();
+  }
   lastBarPush = millis();
 }
 
