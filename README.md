@@ -169,7 +169,9 @@ redirect URI `http://127.0.0.1:8888/callback`.)
   wiped instead of ghosting under the next one. Within the same song, lyric
   changes clean just the lyric strip. Timer ticks use one masked clean transaction
   over the bottom progress window: only the elapsed-time digits and the moving
-  fill edge are cleaned through white, so the bar/frame do not blink as a strip.
+  fill edge are cleaned through white, with the previous progress strip preserved
+  during phase 1 so the fill cannot jump ahead during the clean pass. Small
+  Spotify polling jitter is ignored; real seeks still snap.
 - The elapsed time is **interpolated locally** between Spotify polls, so it
   stays accurate without extra network calls; the bar repaints every 10 s by
   default.

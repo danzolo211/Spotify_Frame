@@ -30,7 +30,8 @@ struct EpdCleanRect {
 // both phases. This is for compound UI updates such as the progress bar + time.
 void epdPushRegionMaskedClean(int x, int y, int w, int h,
                               const EpdCleanRect* cleanRects,
-                              int cleanRectCount);
+                              int cleanRectCount,
+                              const uint8_t* phase1Canvas = nullptr);
 
 // Crisp white->content clean of a small strip for the live-lyric line and the
 // Now-Playing timer/bar: no rate-limit wait and no full-refresh budget, so lyric

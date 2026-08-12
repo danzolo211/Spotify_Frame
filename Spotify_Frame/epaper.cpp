@@ -169,7 +169,8 @@ static void scratchWhiteRect(uint8_t* scratch, int sx, int sy, int sw, int sh,
 
 void epdPushRegionMaskedClean(int x, int y, int w, int h,
                               const EpdCleanRect* cleanRects,
-                              int cleanRectCount) {
+                              int cleanRectCount,
+                              const uint8_t* phase1Canvas) {
   if (w <= 0 || h <= 0) return;
   if (x < 0) { w += x; x = 0; }
   if (y < 0) { h += y; y = 0; }
@@ -191,11 +192,15 @@ void epdPushRegionMaskedClean(int x, int y, int w, int h,
   const int bytesPerRow = w0 / 8;
   const int srcByte0 = x0 / 8;
 
-  // Start phase 1 from the final canvas. Unlisted pixels therefore do not get
-  // a white blink; only the explicit clean rects do.
+  // Start phase 1 from the caller's previous-region snapshot when supplied.
+  // Falling back to the final canvas is fine for static-preserve pixels, but
+  // the progress bar needs the old strip here so it cannot jump to its next
+  // position during the white-clean phase.
   for (int row = 0; row < h; row++) {
     uint8_t* dst = scratch + row * bytesPerRow;
-    const uint8_t* src = buf + (y + row) * screenBytesPerRow + srcByte0;
+    const uint8_t* src = phase1Canvas
+                           ? phase1Canvas + row * bytesPerRow
+                           : buf + (y + row) * screenBytesPerRow + srcByte0;
     for (int col = 0; col < bytesPerRow; col++) dst[col] = ~src[col];
   }
   for (int i = 0; i < cleanRectCount; i++) {

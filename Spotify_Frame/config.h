@@ -53,6 +53,7 @@ static const SpecialDate SPECIAL_DATES[] = {
 #define POLL_ACTIVE_MS   2500    // active song state, especially pause/play, should feel prompt
 #define POLL_IDLE_MS     5000    // how fast music is noticed when nothing's on
                                  // (kept snappy so Now Playing appears promptly)
+#define PROGRESS_JITTER_MS 3000  // ignore small Spotify poll jitter; snap only on real seeks
 
 // ---------- live synced lyrics (LrcLib) ----------
 // A single current line, centered under the album art, advanced in time with the
@@ -85,6 +86,7 @@ static const SpecialDate SPECIAL_DATES[] = {
 #define NP_FILL_MAX_W   360
 #define NP_FILL_H       8
 #define NP_FILL_EDGE_OVERLAP 8
+#define PROGRESS_LYRIC_GUARD_MS 1800  // keep timer ticks away from lyric line changes
 
 #define LYRIC_MIN_GAP_MS        900      // min ms between clean strip repaints
 #define LYRIC_FETCH_TIMEOUT_MS  8000     // body-read cap (matches the Spotify client;

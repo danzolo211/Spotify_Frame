@@ -48,6 +48,7 @@ static uint32_t lastBarPush = 0;
 static uint32_t lastCleanStripPush = 0;
 static int shownBarFillW = -1;
 static String shownElapsedText = "";
+static uint8_t shownProgressStrip[(SCREEN_W / 8) * NP_BAR_STRIP_H];
 static bool artValid = false;
 static bool prevPlaying = false;
 // Live-lyric display tracker. lyrShownIdx: -3 = band blank, -4 = instrumental note,
@@ -194,6 +195,13 @@ static long liveProgressMs() {
 static void rememberProgressShown() {
   shownBarFillW = spotifyProgressFillWidth();
   shownElapsedText = spotifyElapsedTimeText();
+  const uint8_t* buf = canvas.getBuffer();
+  const int bytesPerRow = SCREEN_W / 8;
+  for (int row = 0; row < NP_BAR_STRIP_H; row++) {
+    memcpy(shownProgressStrip + row * bytesPerRow,
+           buf + (NP_BAR_STRIP_Y + row) * bytesPerRow,
+           bytesPerRow);
+  }
 }
 
 // Draw the Now Playing screen with a fresh, interpolated position.
@@ -227,7 +235,6 @@ static void pushSpotifyProgressTick() {
         };
       }
     }
-    shownBarFillW = nextFillW;
   }
 
   if (elapsedChanged) {
@@ -235,13 +242,14 @@ static void pushSpotifyProgressTick() {
     cleanRects[cleanCount++] = {
       NP_TIME_LEFT_X, NP_TIME_LEFT_Y, NP_TIME_LEFT_W, NP_TIME_LEFT_H
     };
-    shownElapsedText = nextElapsed;
   }
 
   if (barChanged || elapsedChanged) {
     epdPushRegionMaskedClean(NP_BAR_STRIP_X, NP_BAR_STRIP_Y,
                              NP_BAR_STRIP_W, NP_BAR_STRIP_H,
-                             cleanRects, cleanCount);
+                             cleanRects, cleanCount,
+                             shownProgressStrip);
+    rememberProgressShown();
     lastCleanStripPush = millis();
   }
   lastBarPush = millis();
@@ -254,10 +262,8 @@ static void pushSpotifyLyricStrip() {
   lastCleanStripPush = lastLyricPush = now;
 }
 
-static bool lyricUpdatePendingNow() {
+static bool lyricChangeWantedNow() {
   if (!settings.lyricsOn || app.mode != MODE_SPOTIFY) return false;
-  if (lastCleanStripPush != 0 &&
-      millis() - lastCleanStripPush < LYRIC_MIN_GAP_MS) return false;
 
   int st = lyricsState();
   if (st != lyrShownState) {
@@ -267,13 +273,37 @@ static bool lyricUpdatePendingNow() {
   }
 
   if (st != LX_READY || !app.trackPlaying) return false;
-  if (millis() - lastLyricPush < LYRIC_MIN_GAP_MS) return false;
 
   long pos = liveProgressMs() + settings.lyricLeadMs;
   if (pos < 0) pos = 0;
   int idx = lyricsActiveIndex((uint32_t)pos);
   int want = (idx < 0) ? -3 : idx;
   return want != lyrShownIdx;
+}
+
+static bool lyricUpdatePendingNow() {
+  if (lastCleanStripPush != 0 &&
+      millis() - lastCleanStripPush < LYRIC_MIN_GAP_MS) return false;
+  if (millis() - lastLyricPush < LYRIC_MIN_GAP_MS) return false;
+  return lyricChangeWantedNow();
+}
+
+static bool lyricUpdateNearNow() {
+  if (lastLyricPush != 0 &&
+      millis() - lastLyricPush < PROGRESS_LYRIC_GUARD_MS) return true;
+  if (lyricChangeWantedNow()) return true;
+  if (!settings.lyricsOn || app.mode != MODE_SPOTIFY || !app.trackPlaying) return false;
+  if (lyricsState() != LX_READY) return false;
+
+  long pos = liveProgressMs() + settings.lyricLeadMs;
+  if (pos < 0) pos = 0;
+  int idx = lyricsActiveIndex((uint32_t)pos);
+  int next = idx + 1;
+  if (next < 0) next = 0;
+  if (next >= lyricsCount()) return false;
+
+  long until = (long)lyricsLineTimeMs(next) - pos;
+  return until >= 0 && until <= PROGRESS_LYRIC_GUARD_MS;
 }
 
 static void commitTrack(const Track& t) {
@@ -315,16 +345,26 @@ static void spotifyTick() {
   bool debouncingNew = false;   // waiting on the stability debounce to show a song
 
   if (r == SP_OK) {
-    app.trackProgress = t.progress;
+    long predictedBeforePoll = liveProgressMs();
+    bool sameKnownTrack = app.trackId.length() && t.id == app.trackId;
     app.trackDuration = t.duration;
     app.trackPlaying = t.playing;
-    progressAnchorMs = t.progress;      // re-sync the interpolation clock
-    progressAnchorAt = millis();
     // keep app fields fresh for the phone even before anything is drawn
     app.trackId = t.id;
     app.trackTitle = t.title;
     app.trackArtist = t.artist;
     app.trackAlbum = t.album;
+
+    if (t.playing && sameKnownTrack) {
+      long delta = t.progress - predictedBeforePoll;
+      progressAnchorMs = (delta > PROGRESS_JITTER_MS || delta < -PROGRESS_JITTER_MS)
+                           ? t.progress : predictedBeforePoll;
+    } else {
+      progressAnchorMs = t.progress;
+    }
+    progressAnchorAt = millis();
+    app.trackProgress = progressAnchorMs;
+
     if (t.playing) {
       app.lastMusicActive = millis();
       active = true;
@@ -349,7 +389,7 @@ static void spotifyTick() {
         bool stripReady = (lastCleanStripPush == 0 ||
                            millis() - lastCleanStripPush >= LYRIC_MIN_GAP_MS);
         if (millis() - lastBarPush >= everyS * 1000UL &&
-            stripReady && !lyricUpdatePendingNow()) {
+            stripReady && !lyricUpdateNearNow()) {
           pushSpotifyProgressTick();
         }
       }

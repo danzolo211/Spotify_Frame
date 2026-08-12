@@ -115,7 +115,16 @@ and the partial-refresh window.
 
 Normal timer ticks also minimize flashing. The progress tick uses one masked
 two-phase update over the bottom progress window. Its clean set is the small
-elapsed-time box plus only the moving edge of the progress fill. Unchanged bar
-and frame pixels are copied from the final canvas during both phases, so they do
-not get a white blink. If Spotify seeks backward and the bar must shrink, the
-firmware cleans the fill interior so old black pixels are erased.
+elapsed-time box plus only the moving edge of the progress fill. Phase 1 copies
+the previous displayed progress strip, not the future canvas, then whites only
+the clean set. Phase 2 writes the final canvas. Therefore the fill cannot jump
+ahead during the clean phase, and unchanged bar/frame pixels do not get a white
+blink. If Spotify seeks backward and the bar must shrink, the firmware cleans
+the fill interior so old black pixels are erased.
+
+The coordinate invariant is explicit in `config.h`: lyrics are rows 199..234
+and the progress/timestamp strip is rows 266..299. Because the lyric partial
+push is confined to `LYRIC_BAND_*`, it cannot address the timestamp or progress
+pixels at all. Progress ticks are also held away from lyric-line changes by
+`PROGRESS_LYRIC_GUARD_MS`, so a legitimate timestamp clean pass is not scheduled
+on top of the lyric transition and mistaken for lyric-induced erasing.
