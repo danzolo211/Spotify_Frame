@@ -58,9 +58,10 @@ static const SpecialDate SPECIAL_DATES[] = {
 // A single current line, centered under the album art, advanced in time with the
 // song. Each line change repaints ONLY the lyric strip through white (a clean
 // white->text transition = full-refresh crispness, no ghosting). Timer-only
-// ticks repaint ONLY the small bottom strip and only advance on the configured
-// cadence. See lyrics.cpp and epdPushLyric() in epaper.cpp for why the clean path
-// is mandatory on this panel.
+// ticks repaint only the progress pieces that actually change: the growing bar
+// gets a plain partial update, while the small elapsed-time box gets the clean
+// white->text path. See lyrics.cpp and epdPushLyric() in epaper.cpp for why the
+// clean path is mandatory on this panel.
 #define LYRIC_BAND_X    0
 #define LYRIC_BAND_Y    199
 #define LYRIC_BAND_W    400
@@ -69,6 +70,14 @@ static const SpecialDate SPECIAL_DATES[] = {
 #define NP_BAR_STRIP_Y  266
 #define NP_BAR_STRIP_W  400
 #define NP_BAR_STRIP_H  34
+#define NP_BAR_BOX_X    16
+#define NP_BAR_BOX_Y    266
+#define NP_BAR_BOX_W    368
+#define NP_BAR_BOX_H    14
+#define NP_TIME_LEFT_X  16
+#define NP_TIME_LEFT_Y  282
+#define NP_TIME_LEFT_W  80
+#define NP_TIME_LEFT_H  18
 
 #define LYRIC_MIN_GAP_MS        900      // min ms between clean strip repaints
 #define LYRIC_FETCH_TIMEOUT_MS  8000     // body-read cap (matches the Spotify client;

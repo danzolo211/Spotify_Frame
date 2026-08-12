@@ -46,6 +46,8 @@ static uint32_t pendingSince = 0;
 static Track pendingInfo;
 static uint32_t lastBarPush = 0;
 static uint32_t lastCleanStripPush = 0;
+static int shownBarFillW = -1;
+static String shownElapsedText = "";
 static bool artValid = false;
 static bool prevPlaying = false;
 // Live-lyric display tracker. lyrShownIdx: -3 = band blank, -4 = instrumental note,
@@ -189,15 +191,45 @@ static long liveProgressMs() {
   return p;
 }
 
+static void rememberProgressShown() {
+  shownBarFillW = spotifyProgressFillWidth();
+  shownElapsedText = spotifyElapsedTimeText();
+}
+
 // Draw the Now Playing screen with a fresh, interpolated position.
 static void drawSpotify() {
   app.trackProgress = liveProgressMs();
   renderSpotify(spotifyArtBits(), artValid);
+  rememberProgressShown();
 }
 
-static void drawSpotifyProgressStrip() {
+static void pushSpotifyProgressTick() {
   app.trackProgress = liveProgressMs();
-  renderSpotifyProgressStrip();
+  int nextFillW = spotifyProgressFillWidth();
+  String nextElapsed = spotifyElapsedTimeText();
+  bool barChanged = (shownBarFillW < 0 || nextFillW != shownBarFillW);
+  bool barShrank = (shownBarFillW >= 0 && nextFillW < shownBarFillW);
+  bool elapsedChanged = (nextElapsed != shownElapsedText);
+
+  if (barChanged) {
+    renderSpotifyProgressBarOnly();
+    if (barShrank)
+      epdPushLyric(NP_BAR_BOX_X, NP_BAR_BOX_Y, NP_BAR_BOX_W, NP_BAR_BOX_H);
+    else
+      epdPushRegionOnly(NP_BAR_BOX_X, NP_BAR_BOX_Y, NP_BAR_BOX_W, NP_BAR_BOX_H);
+    shownBarFillW = nextFillW;
+  }
+
+  if (elapsedChanged) {
+    renderSpotifyElapsedTimeOnly();
+    epdPushLyric(NP_TIME_LEFT_X, NP_TIME_LEFT_Y,
+                 NP_TIME_LEFT_W, NP_TIME_LEFT_H);
+    shownElapsedText = nextElapsed;
+  }
+
+  if (barChanged || elapsedChanged)
+    lastCleanStripPush = millis();
+  lastBarPush = millis();
 }
 
 static void pushSpotifyLyricStrip() {
@@ -205,6 +237,28 @@ static void pushSpotifyLyricStrip() {
   epdPushLyric(LYRIC_BAND_X, LYRIC_BAND_Y, LYRIC_BAND_W, LYRIC_BAND_H);
   uint32_t now = millis();
   lastCleanStripPush = lastLyricPush = now;
+}
+
+static bool lyricUpdatePendingNow() {
+  if (!settings.lyricsOn || app.mode != MODE_SPOTIFY) return false;
+  if (lastCleanStripPush != 0 &&
+      millis() - lastCleanStripPush < LYRIC_MIN_GAP_MS) return false;
+
+  int st = lyricsState();
+  if (st != lyrShownState) {
+    if (st == LX_READY) return app.trackPlaying;
+    if (st == LX_INSTRUMENTAL) return true;
+    return lyrShownIdx >= 0 || lyrShownState == LX_INSTRUMENTAL;
+  }
+
+  if (st != LX_READY || !app.trackPlaying) return false;
+  if (millis() - lastLyricPush < LYRIC_MIN_GAP_MS) return false;
+
+  long pos = liveProgressMs() + settings.lyricLeadMs;
+  if (pos < 0) pos = 0;
+  int idx = lyricsActiveIndex((uint32_t)pos);
+  int want = (idx < 0) ? -3 : idx;
+  return want != lyrShownIdx;
 }
 
 static void commitTrack(const Track& t) {
@@ -279,10 +333,9 @@ static void spotifyTick() {
                             ? MIN_PROGRESS_S : settings.progressS;
         bool stripReady = (lastCleanStripPush == 0 ||
                            millis() - lastCleanStripPush >= LYRIC_MIN_GAP_MS);
-        if (millis() - lastBarPush >= everyS * 1000UL && stripReady) {
-          drawSpotifyProgressStrip();
-          epdPushLyric(NP_BAR_STRIP_X, NP_BAR_STRIP_Y, NP_BAR_STRIP_W, NP_BAR_STRIP_H);
-          lastCleanStripPush = lastBarPush = millis();
+        if (millis() - lastBarPush >= everyS * 1000UL &&
+            stripReady && !lyricUpdatePendingNow()) {
+          pushSpotifyProgressTick();
         }
       }
     } else if (t.playing && !app.note.active) {

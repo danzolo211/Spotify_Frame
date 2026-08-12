@@ -63,7 +63,7 @@ the device (bistable). QED.
 
 ## Appendix: why live lyric and timer strips do not leave old pixels
 
-The live lyric band and Now Playing timer strip use the same two-phase update:
+The live lyric band and elapsed-time box use the same two-phase update:
 
 ```
 1. set every pixel in rectangle R to white
@@ -90,15 +90,16 @@ previous_R_t == G_t on R
 previous_outside_R_t == previous_outside_R_(t-1)
 ```
 
-The rectangles are disjoint in the firmware constants:
+The lyric and progress rectangles are disjoint in the firmware constants:
 
 ```
 Lyric band R_lyric: x = 0..399, y = 199..234
 Transport icons:    y = 235..263
-Timer strip R_bar:  x = 0..399, y = 266..299
+Progress bar box:   x = 16..383, y = 266..279
+Elapsed time box:   x = 16..95,  y = 282..299
 ```
 
-The bottom strip contains the full timer/bar draw area:
+The full bottom strip contains the full timer/bar draw area:
 
 ```
 Bar border: x = 18..381, y = 267..278
@@ -106,9 +107,15 @@ Bar fill:   x = 20..379, y = 269..276
 Time text:  baseline y = 295; SansSmall digits occupy y = 286..294
 ```
 
-`R_lyric` and `R_bar` are disjoint, separated by the transport icon rows. A
-lyric update uses `R = R_lyric`; a timer update uses `R = R_bar`. Because the
-clean helper writes only the requested rectangle into panel RAM before each
-partial refresh, a lyric update cannot blank, repaint, or visibly flash the
-progress bar, timestamps, play/pause button, or skip arrows. The timestamp value
-changes only when the configured progress cadence runs the timer-strip update.
+`R_lyric` is disjoint from every progress rectangle, separated by the transport
+icon rows. A lyric update uses `R = R_lyric`; it cannot blank, repaint, or
+visibly flash the progress bar, timestamps, play/pause button, or skip arrows
+because the clean helper writes only `R_lyric` into current RAM, previous RAM,
+and the partial-refresh window.
+
+Normal timer ticks also minimize flashing. The progress fill is monotonic during
+ordinary playback, so the bar box uses a plain rectangle-confined partial update:
+new black pixels are added to the right, with no white blanking phase. Only the
+small elapsed-time box uses the two-phase clean path, because changing digits
+need old black pixels erased. If Spotify seeks backward and the bar must shrink,
+the firmware falls back to a clean update of the bar box only.

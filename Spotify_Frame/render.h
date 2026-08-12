@@ -11,6 +11,10 @@ void renderVerse(const Verse& v, int bgId);
 bool renderVerseFits(const String& text, const String& ref, int zw, int zh);
 void renderSpotify(const uint8_t* artBits, bool artValid);
 void renderSpotifyProgressStrip();
+int spotifyProgressFillWidth();
+String spotifyElapsedTimeText();
+void renderSpotifyProgressBarOnly();
+void renderSpotifyElapsedTimeOnly();
 
 // Live lyric line for the Now-Playing screen. renderSetLyric stores the current
 // line (empty = blank band; instrumental = a small centered note); renderSpotify

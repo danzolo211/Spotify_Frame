@@ -147,6 +147,32 @@ void epdPushRegionClean(int x, int y, int w, int h) {
   partials += 2;   // counts toward the deep-clean budget, like other pushes
 }
 
+void epdPushRegionOnly(int x, int y, int w, int h) {
+  if (w <= 0 || h <= 0) return;
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x >= SCREEN_W || w <= 0) return;
+  if (y >= SCREEN_H || h <= 0) return;
+  if (w > SCREEN_W - x) w = SCREEN_W - x;
+  if (h > SCREEN_H - y) h = SCREEN_H - y;
+
+  int x0 = x & ~7;
+  int x1 = (x + w + 7) & ~7;
+  int w0 = x1 - x0;
+  if (x0 < 0) x0 = 0;
+  if (w0 > SCREEN_W - x0) w0 = SCREEN_W - x0;
+
+  const uint8_t* buf = canvas.getBuffer();
+  display.epd2.writeImagePart(buf, x0, y, SCREEN_W, SCREEN_H,
+                              x0, y, w0, h, true);
+  display.refresh(x0, y, w0, h);
+  display.epd2.writeImagePartToPrevious(buf, x0, y, SCREEN_W, SCREEN_H,
+                                        x0, y, w0, h, true);
+  display.epd2.powerOff();
+  lastPushMs = millis();
+  refreshes++;
+}
+
 // Lyric / Now-Playing-timer strip repaint. Same crisp white->content clean, but it
 // deliberately does NOT wait MIN_REFRESH_GAP_MS (the caller spaces lines with a
 // non-blocking LYRIC_MIN_GAP_MS skip) and does NOT count toward PARTIALS_BEFORE_FULL

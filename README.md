@@ -166,10 +166,10 @@ redirect URI `http://127.0.0.1:8888/callback`.)
   refreshes share a separate 900 ms gate so they can stay in sync without
   hammering the panel.
 - Each **new song is a clean full refresh**, so the previous title/art is
-  wiped instead of ghosting under the next one. Within the same song, timer-only
-  ticks clean just the bottom strip; lyric changes clean just the lyric strip,
-  with all panel-RAM writes and refreshes confined to that rectangle so the
-  progress bar, timestamps, and controls stay present.
+  wiped instead of ghosting under the next one. Within the same song, lyric
+  changes clean just the lyric strip. Timer ticks avoid a full bottom-strip flash:
+  the progress bar gets a plain partial update while it grows, and only the small
+  elapsed-time box is cleaned through white to prevent digit ghosting.
 - The elapsed time is **interpolated locally** between Spotify polls, so it
   stays accurate without extra network calls; the bar repaints every 10 s by
   default.

@@ -21,6 +21,10 @@ void epdPush(PushMode mode, int x = 0, int y = 0, int w = SCREEN_W, int h = SCRE
 // changes shape; a plain PUSH_REGION is fine for the monotonic progress bar.
 void epdPushRegionClean(int x, int y, int w, int h);
 
+// Plain partial refresh confined to the requested window. Use when pixels only
+// need a differential update, such as the progress fill growing to the right.
+void epdPushRegionOnly(int x, int y, int w, int h);
+
 // Crisp white->content clean of a small strip for the live-lyric line and the
 // Now-Playing timer/bar: no rate-limit wait and no full-refresh budget, so lyric
 // playback never causes a full-screen flash. Cadence is gated by the caller.

@@ -307,20 +307,41 @@ void renderLyricBand() {
 static const int BAR_L = 18, BAR_R = 382, BAR_Y = 267, BAR_H = 12;
 static const int TIME_BASELINE = BAR_Y + BAR_H + 16;
 
-void renderSpotifyProgressStrip() {
-  canvas.fillRect(NP_BAR_STRIP_X, NP_BAR_STRIP_Y,
-                  NP_BAR_STRIP_W, NP_BAR_STRIP_H, PAPER);
+int spotifyProgressFillWidth() {
   float frac = app.trackDuration > 0
                ? (float)app.trackProgress / app.trackDuration : 0;
   frac = constrain(frac, 0.0f, 1.0f);
+  return (int)((BAR_R - BAR_L - 4) * frac);
+}
+
+String spotifyElapsedTimeText() {
+  return mmss(app.trackProgress);
+}
+
+void renderSpotifyProgressBarOnly() {
+  canvas.fillRect(NP_BAR_BOX_X, NP_BAR_BOX_Y, NP_BAR_BOX_W, NP_BAR_BOX_H, PAPER);
   canvas.drawRoundRect(BAR_L, BAR_Y, BAR_R - BAR_L, BAR_H, BAR_H / 2, INK);
-  int fw = (int)((BAR_R - BAR_L - 4) * frac);
+  int fw = spotifyProgressFillWidth();
   if (fw > 2)
     canvas.fillRoundRect(BAR_L + 2, BAR_Y + 2, fw, BAR_H - 4, (BAR_H - 4) / 2, INK);
+}
+
+void renderSpotifyElapsedTimeOnly() {
+  canvas.fillRect(NP_TIME_LEFT_X, NP_TIME_LEFT_Y,
+                  NP_TIME_LEFT_W, NP_TIME_LEFT_H, PAPER);
   canvas.setFont(&SansSmall);
   canvas.setTextColor(INK);
   canvas.setCursor(BAR_L, TIME_BASELINE);
-  canvas.print(mmss(app.trackProgress));
+  canvas.print(spotifyElapsedTimeText());
+}
+
+void renderSpotifyProgressStrip() {
+  canvas.fillRect(NP_BAR_STRIP_X, NP_BAR_STRIP_Y,
+                  NP_BAR_STRIP_W, NP_BAR_STRIP_H, PAPER);
+  renderSpotifyProgressBarOnly();
+  renderSpotifyElapsedTimeOnly();
+  canvas.setFont(&SansSmall);
+  canvas.setTextColor(INK);
   String dur = mmss(app.trackDuration);
   canvas.setCursor(BAR_R - textWidth(&SansSmall, dur), TIME_BASELINE);
   canvas.print(dur);
